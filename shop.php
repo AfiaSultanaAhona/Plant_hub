@@ -229,7 +229,7 @@ if (!$has_outdoor_in_db) {
                     <span class="supplier-badge">🏭 Supplier: ' . htmlspecialchars($supplier_name) . '</span>
                     <span class="cat-badge">🏷️ ' . htmlspecialchars($plant_cat) . '</span>
                     <h3 style="margin: 5px 0; color: #143d2b;">' . htmlspecialchars($plant_name) . '</h3>
-                    <div class="price">$' . number_format((float)$raw_price, 2) . '</div>
+                    <div class="price">৳' . number_format((float)$raw_price, 2) . '</div>
                     
                     <!-- Live Stock Level -->
                     <span class="stock-badge ' . $stock_class . '">' . $stock_label . '</span>
