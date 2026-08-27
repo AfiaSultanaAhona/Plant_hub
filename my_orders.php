@@ -7,7 +7,6 @@ include("DBconnect.php");
 // Turn off fatal SQL exceptions in PHP 8.1+
 mysqli_report(MYSQLI_REPORT_OFF);
 
-// Detect active logged-in user identifiers across potential session keys
 $user_id = $_SESSION['user_id'] ?? $_SESSION['customer_id'] ?? $_SESSION['id'] ?? $_SESSION['user'] ?? null;
 $user_email = $_SESSION['email'] ?? $_SESSION['user_email'] ?? null;
 $username = $_SESSION['username'] ?? $_SESSION['name'] ?? null;
@@ -39,7 +38,7 @@ if ($conn) {
         $res = mysqli_query($conn, $query);
     }
     
-    // 2. Fallback: If no matched user records exist, retrieve all rows from orders table
+    // 2. Fallback: Retrieve all rows if no specific user record matched
     if (!$res || mysqli_num_rows($res) === 0) {
         $query = "SELECT * FROM orders ORDER BY order_id ASC";
         $res = mysqli_query($conn, $query);
@@ -48,16 +47,43 @@ if ($conn) {
     if ($res && mysqli_num_rows($res) > 0) {
         while ($row = mysqli_fetch_assoc($res)) {
             $row_l = array_change_key_case($row, CASE_LOWER);
-            
-            $amount = (float)($row_l['amount'] ?? $row_l['total_amount'] ?? $row_l['price'] ?? $row_l['unit_price'] ?? $row_l['total'] ?? 0);
-            
+
+            // Dynamic extraction of plant name across common database column aliases
+            $plant_name = null;
+            $possible_name_keys = ['plant_name', 'plant', 'product_name', 'item_name', 'name', 'title', 'product', 'item', 'plantname'];
+            foreach ($possible_name_keys as $k) {
+                if (!empty($row_l[$k])) {
+                    $plant_name = $row_l[$k];
+                    break;
+                }
+            }
+            if (!$plant_name) {
+                // Pick the first string value from row that isn't numeric/ID/email
+                foreach ($row_l as $rk => $rv) {
+                    if (is_string($rv) && !is_numeric($rv) && !str_contains($rv, '@') && !in_array($rk, ['status', 'date', 'created_at'])) {
+                        $plant_name = $rv;
+                        break;
+                    }
+                }
+            }
+
+            // Dynamic extraction of total amount spent
+            $amount = 0;
+            $possible_amount_keys = ['amount', 'total_amount', 'price', 'total', 'grand_total', 'unit_price', 'cost', 'total_price', 'subtotal'];
+            foreach ($possible_amount_keys as $k) {
+                if (isset($row_l[$k]) && (float)$row_l[$k] > 0) {
+                    $amount = (float)$row_l[$k];
+                    break;
+                }
+            }
+
             // Calculate 10 points for every complete ৳500 spent per order item
             $points_earned = (int)floor($amount / 500) * 10;
             $total_points += $points_earned;
 
             $orders[] = [
                 'order_id'   => $row_l['order_id'] ?? $row_l['id'] ?? null,
-                'plant_name' => $row_l['plant_name'] ?? $row_l['item_name'] ?? $row_l['name'] ?? $row_l['title'] ?? 'Plant',
+                'plant_name' => $plant_name ?? 'Plant Item',
                 'amount'     => $amount,
                 'points'     => $points_earned
             ];
