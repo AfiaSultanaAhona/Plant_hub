@@ -10,26 +10,26 @@ if (!isset($_SESSION['cart'])) {
     $_SESSION['cart'] = [];
 }
 
-// 1. Identify active customer session
-$raw_user_id = $_SESSION['user_id'] 
-            ?? $_SESSION['Customer_ID'] 
-            ?? $_SESSION['customer_id'] 
-            ?? $_SESSION['cid'] 
-            ?? $_SESSION['id'] 
-            ?? '';
+// 1. Unified Customer ID Check
+$user_id = $_SESSION['Customer_ID'] 
+        ?? $_SESSION['user_id'] 
+        ?? $_SESSION['customer_id'] 
+        ?? $_SESSION['cid'] 
+        ?? $_SESSION['id'] 
+        ?? null;
 
-$clean_user_id = preg_replace('/[^0-9]/', '', (string)$raw_user_id);
+$clean_id = $user_id ? mysqli_real_escape_string($conn, $user_id) : null;
 
-// 2. Query Live Points for the current Customer ID
+// 2. Query Live Customer Loyalty Points
 $user_points = 0;
-if (!empty($clean_user_id)) {
-    $pts_res = mysqli_query($conn, "SELECT points FROM customer WHERE Customer_ID = '$clean_user_id'");
+if ($clean_id) {
+    $pts_res = mysqli_query($conn, "SELECT points FROM customer WHERE Customer_ID = '$clean_id'");
     if ($pts_res && $p_row = mysqli_fetch_assoc($pts_res)) {
         $user_points = (int)($p_row['points'] ?? 0);
     }
 }
 
-// 3. Cart Quantity Adjustment
+// 3. Handle Quantity Buttons (+ / - / remove)
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     $p_id = $_POST['plant_id'] ?? '';
     
@@ -45,7 +45,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     }
 }
 
-// Calculate Grand Total
+// 4. Calculate Grand Total
 $total_amount = 0.0;
 foreach ($_SESSION['cart'] as $item) {
     $total_amount += ((float)$item['price'] * (int)$item['quantity']);
@@ -54,7 +54,7 @@ foreach ($_SESSION['cart'] as $item) {
 $message = "";
 $message_type = "";
 
-// 4. Order Checkout and Points Logic
+// 5. Checkout & Point Calculation Processing
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'checkout') {
     if (empty($_SESSION['cart'])) {
         $message = "Your cart is empty.";
@@ -67,18 +67,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             $message = "Insufficient loyalty points balance! You need $required_points points.";
             $message_type = "error";
         } else {
-            // A. Insert Orders into Database
+            // A. Record the orders in database
             foreach ($_SESSION['cart'] as $item) {
                 $pid = mysqli_real_escape_string($conn, $item['id']);
                 $amt = (float)$item['price'] * (int)$item['quantity'];
                 $pay_m = mysqli_real_escape_string($conn, $payment_method);
-                $cust = !empty($clean_user_id) ? $clean_user_id : '1';
+                $cust = $clean_id ?? '1';
 
                 mysqli_query($conn, "INSERT INTO orders (Customer_ID, plant_id, amount, Payment_Method, order_date) 
                                      VALUES ('$cust', '$pid', '$amt', '$pay_m', NOW())");
             }
 
-            // B. Points Logic (+10 PTS per $500 spent OR Deduct when redeemed)
+            // B. Calculate point additions or deductions (+10 PTS per $500 spent)
             if ($payment_method === 'Loyalty Points') {
                 $new_points = max(0, $user_points - $required_points);
             } else {
@@ -86,11 +86,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                 $new_points = $user_points + $earned_points;
             }
 
-            // C. Persist updated points balance to current user ID
-            if (!empty($clean_user_id)) {
-                mysqli_query($conn, "UPDATE customer SET points = $new_points WHERE Customer_ID = '$clean_user_id'");
+            // C. Persist updated points balance to database
+            if ($clean_id) {
+                mysqli_query($conn, "UPDATE customer SET points = $new_points WHERE Customer_ID = '$clean_id'");
             }
 
+            // D. Refresh local variable & clear cart
             $user_points = $new_points;
             $_SESSION['cart'] = [];
             $total_amount = 0.0;
