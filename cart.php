@@ -142,7 +142,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     <div class="grid-stats">
         <div class="stat-card">
             <h4>Store Wallet Balance 💳</h4>
-            <span class="val">$0.00</span>
+            <span class="val">৳0.00</span>
         </div>
         <div class="stat-card points-card">
             <h4>Loyalty Points Balance ⭐️</h4>
@@ -173,7 +173,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                     <?php foreach ($_SESSION['cart'] as $item): ?>
                         <tr>
                             <td style="font-weight:600;"><?php echo htmlspecialchars($item['name']); ?></td>
-                            <td style="color:#10b981; font-weight:bold;">$<?php echo number_format((float)$item['price'], 2); ?></td>
+                            <td style="color:#10b981; font-weight:bold;">৳<?php echo number_format((float)$item['price'], 2); ?></td>
                             <td>
                                 <form method="POST" style="display:inline-flex; align-items:center; gap:8px;">
                                     <input type="hidden" name="plant_id" value="<?php echo htmlspecialchars($item['id']); ?>">
@@ -182,7 +182,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                                     <button type="submit" name="action" value="increase" class="btn-qty">+</button>
                                 </form>
                             </td>
-                            <td style="color:#10b981; font-weight:bold;">$<?php echo number_format((float)$item['price'] * (int)$item['quantity'], 2); ?></td>
+                            <td style="color:#10b981; font-weight:bold;">৳<?php echo number_format((float)$item['price'] * (int)$item['quantity'], 2); ?></td>
                         </tr>
                     <?php endforeach; ?>
                 </tbody>
@@ -198,7 +198,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 
                 <div style="text-align: right; margin-top: 25px;">
                     <span style="font-size: 24px; font-weight: 800; color: #0f172a;">
-                        Final Total: <span style="color:#10b981;">$<?php echo number_format($total_amount, 2); ?></span>
+                        Final Total: <span style="color:#10b981;">৳<?php echo number_format($total_amount, 2); ?></span>
                     </span>
                 </div>
 
