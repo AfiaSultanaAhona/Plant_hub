@@ -4,11 +4,18 @@ if (session_status() === PHP_SESSION_NONE) {
 }
 include_once("DBconnect.php");
 
-// Fetch live Loyalty Points balance for the current user
-$header_user_points = 0;
-$user_id = $_SESSION['user_id'] ?? $_SESSION['Customer_ID'] ?? $_SESSION['customer_id'] ?? null;
-$clean_user_id = preg_replace('/[^0-9]/', '', (string)$user_id);
+// 1. Unified session user ID lookup
+$raw_user_id = $_SESSION['user_id'] 
+            ?? $_SESSION['Customer_ID'] 
+            ?? $_SESSION['customer_id'] 
+            ?? $_SESSION['cid'] 
+            ?? $_SESSION['id'] 
+            ?? '';
 
+$clean_user_id = preg_replace('/[^0-9]/', '', (string)$raw_user_id);
+
+// 2. Fetch live Loyalty Points from DB
+$header_user_points = 0;
 if (!empty($clean_user_id)) {
     $pts_res = mysqli_query($conn, "SELECT points FROM customer WHERE Customer_ID = '$clean_user_id'");
     if ($pts_res && $p_row = mysqli_fetch_assoc($pts_res)) {
@@ -16,7 +23,7 @@ if (!empty($clean_user_id)) {
     }
 }
 
-// Calculate total cart items count
+// 3. Count items in cart
 $cart_count = 0;
 if (isset($_SESSION['cart']) && is_array($_SESSION['cart'])) {
     foreach ($_SESSION['cart'] as $item) {
@@ -65,9 +72,7 @@ if (isset($_SESSION['cart']) && is_array($_SESSION['cart'])) {
             align-items: center;
             gap: 5px;
         }
-        .nav-link:hover {
-            color: #15803d;
-        }
+        .nav-link:hover { color: #15803d; }
         .points-badge {
             background-color: #dcfce7;
             color: #15803d;
@@ -99,38 +104,28 @@ if (isset($_SESSION['cart']) && is_array($_SESSION['cart'])) {
             text-decoration: none;
             font-weight: 700;
             font-size: 14px;
-            transition: all 0.2s;
-        }
-        .btn-logout:hover {
-            background-color: #fecdd3;
         }
     </style>
 </head>
 <body>
 
 <header class="navbar">
-    <a href="shop.php" class="navbar-brand">
-        🌿 Plant Hub
-    </a>
+    <a href="shop.php" class="navbar-brand">🌿 Plant Hub</a>
 
     <ul class="navbar-nav">
         <li><a href="shop.php" class="nav-link">Home 🏠</a></li>
         <li><a href="cart.php" class="nav-link">My Cart 🛒 (<?php echo $cart_count; ?>)</a></li>
         <li><a href="my_orders.php" class="nav-link">My Orders 📦</a></li>
         
-        <!-- Dynamically synchronized Points Badge -->
+        <!-- Navbar Points Badge synced with DB -->
         <li>
             <div class="points-badge">
                 🌿 Points: <?php echo number_format($header_user_points); ?>
             </div>
         </li>
 
-        <?php if (isset($_SESSION['user_id']) || isset($_SESSION['customer_id']) || isset($_SESSION['Customer_ID'])): ?>
-            <li>
-                <div class="user-badge">
-                    👤 Customer
-                </div>
-            </li>
+        <?php if (!empty($clean_user_id) || isset($_SESSION['user_id'])): ?>
+            <li><div class="user-badge">👤 Customer</div></li>
             <li><a href="logout.php" class="btn-logout">Logout</a></li>
         <?php else: ?>
             <li><a href="login.php" class="nav-link">Login</a></li>

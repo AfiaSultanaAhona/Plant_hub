@@ -10,7 +10,7 @@ if (!isset($_SESSION['cart'])) {
     $_SESSION['cart'] = [];
 }
 
-// 1. Robust Customer ID Detection from Session
+// 1. Identify active customer session
 $raw_user_id = $_SESSION['user_id'] 
             ?? $_SESSION['Customer_ID'] 
             ?? $_SESSION['customer_id'] 
@@ -20,7 +20,7 @@ $raw_user_id = $_SESSION['user_id']
 
 $clean_user_id = preg_replace('/[^0-9]/', '', (string)$raw_user_id);
 
-// 2. Fetch Live Loyalty Points from DB
+// 2. Query Live Points for the current Customer ID
 $user_points = 0;
 if (!empty($clean_user_id)) {
     $pts_res = mysqli_query($conn, "SELECT points FROM customer WHERE Customer_ID = '$clean_user_id'");
@@ -29,7 +29,7 @@ if (!empty($clean_user_id)) {
     }
 }
 
-// 3. Handle Cart Quantity Adjustments
+// 3. Cart Quantity Adjustment
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     $p_id = $_POST['plant_id'] ?? '';
     
@@ -54,7 +54,7 @@ foreach ($_SESSION['cart'] as $item) {
 $message = "";
 $message_type = "";
 
-// 4. Complete Purchase & Loyalty Points Logic
+// 4. Order Checkout and Points Logic
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'checkout') {
     if (empty($_SESSION['cart'])) {
         $message = "Your cart is empty.";
@@ -78,28 +78,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                                      VALUES ('$cust', '$pid', '$amt', '$pay_m', NOW())");
             }
 
-            // B. Calculate New Points Balance
+            // B. Points Logic (+10 PTS per $500 spent OR Deduct when redeemed)
             if ($payment_method === 'Loyalty Points') {
-                // Deduct points when redeemed
                 $new_points = max(0, $user_points - $required_points);
             } else {
-                // Earn +10 points for every $500 spent
                 $earned_points = (int)floor($total_amount / 500) * 10;
                 $new_points = $user_points + $earned_points;
             }
 
-            // C. Update Database & Local Variable
+            // C. Persist updated points balance to current user ID
             if (!empty($clean_user_id)) {
                 mysqli_query($conn, "UPDATE customer SET points = $new_points WHERE Customer_ID = '$clean_user_id'");
-            } else {
-                // Fallback for demo session without clean numeric ID
-                mysqli_query($conn, "UPDATE customer SET points = $new_points ORDER BY Customer_ID DESC LIMIT 1");
             }
 
             $user_points = $new_points;
             $_SESSION['cart'] = [];
             $total_amount = 0.0;
-            $message = "Order placed successfully! 🎉 Points updated.";
+            $message = "Order placed successfully! 🌿 Points updated.";
             $message_type = "success";
         }
     }
