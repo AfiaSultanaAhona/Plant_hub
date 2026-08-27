@@ -2,81 +2,142 @@
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
+include_once("DBconnect.php");
 
-// Check logged in status & user role from session
-$is_logged_in = isset($_SESSION['user_id']) || isset($_SESSION['user']) || isset($_SESSION['email']) || isset($_SESSION['role']);
-$role = strtolower($_SESSION['role'] ?? $_SESSION['user_role'] ?? 'customer'); 
+// Fetch live Loyalty Points balance for the current user
+$header_user_points = 0;
+$user_id = $_SESSION['user_id'] ?? $_SESSION['Customer_ID'] ?? $_SESSION['customer_id'] ?? null;
+$clean_user_id = preg_replace('/[^0-9]/', '', (string)$user_id);
 
-// Fetch live Loyalty Points for logged-in customers
-$loyalty_points = 0;
-if ($is_logged_in && $role === 'customer') {
-    if (file_exists("DBconnect.php")) {
-        include_once("DBconnect.php");
-    } elseif (file_exists("../DBconnect.php")) {
-        include_once("../DBconnect.php");
+if (!empty($clean_user_id)) {
+    $pts_res = mysqli_query($conn, "SELECT points FROM customer WHERE Customer_ID = '$clean_user_id'");
+    if ($pts_res && $p_row = mysqli_fetch_assoc($pts_res)) {
+        $header_user_points = (int)($p_row['points'] ?? 0);
     }
+}
 
-    if (isset($conn) && isset($_SESSION['user_id'])) {
-        $raw_cust_id = (int)preg_replace('/[^0-9]/', '', $_SESSION['user_id']);
-        $pts_query = "SELECT Loyalty_points FROM customer WHERE Customer_id = $raw_cust_id LIMIT 1";
-        $pts_result = mysqli_query($conn, $pts_query);
-        if ($pts_result && $pts_row = mysqli_fetch_assoc($pts_result)) {
-            $loyalty_points = (int)($pts_row['Loyalty_points'] ?? 0);
-        }
+// Calculate total cart items count
+$cart_count = 0;
+if (isset($_SESSION['cart']) && is_array($_SESSION['cart'])) {
+    foreach ($_SESSION['cart'] as $item) {
+        $cart_count += (int)($item['quantity'] ?? 1);
     }
 }
 ?>
 
-<header style="background: white; border-bottom: 1px solid #e2e8f0; padding: 15px 30px; display: flex; align-items: center; justify-content: space-between;">
-    <!-- Logo -->
-    <a href="index.php" style="font-size: 22px; font-weight: 800; color: #15803d; text-decoration: none; display: flex; align-items: center; gap: 8px;">
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <style>
+        .navbar {
+            background-color: #ffffff;
+            padding: 15px 40px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+            font-family: 'Segoe UI', sans-serif;
+        }
+        .navbar-brand {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 22px;
+            font-weight: 800;
+            color: #15803d;
+            text-decoration: none;
+        }
+        .navbar-nav {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+            list-style: none;
+            margin: 0;
+            padding: 0;
+        }
+        .nav-link {
+            text-decoration: none;
+            color: #334155;
+            font-weight: 600;
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        .nav-link:hover {
+            color: #15803d;
+        }
+        .points-badge {
+            background-color: #dcfce7;
+            color: #15803d;
+            padding: 6px 14px;
+            border-radius: 20px;
+            font-weight: 700;
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            border: 1px solid #bbf7d0;
+        }
+        .user-badge {
+            background-color: #dbeafe;
+            color: #1e40af;
+            padding: 6px 14px;
+            border-radius: 20px;
+            font-weight: 700;
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .btn-logout {
+            background-color: #ffe4e6;
+            color: #e11d48;
+            padding: 6px 16px;
+            border-radius: 20px;
+            text-decoration: none;
+            font-weight: 700;
+            font-size: 14px;
+            transition: all 0.2s;
+        }
+        .btn-logout:hover {
+            background-color: #fecdd3;
+        }
+    </style>
+</head>
+<body>
+
+<header class="navbar">
+    <a href="shop.php" class="navbar-brand">
         🌿 Plant Hub
     </a>
 
-    <!-- Navigation Links -->
-    <nav style="display: flex; gap: 20px; align-items: center;">
-        <?php if ($is_logged_in && ($role === 'staff' || $role === 'admin' || $role === 'employee')): ?>
-            <!-- Staff Navigation -->
-            <a href="sales_dashboard.php" style="text-decoration: none; color: #475569; font-weight: 600; font-size: 14px;">Sales Tracking 📈</a>
-            <a href="inventory.php" style="text-decoration: none; color: #475569; font-weight: 600; font-size: 14px;">Inventory 🌿</a>
-            <a href="employee_dashboard.php" style="text-decoration: none; color: #475569; font-weight: 600; font-size: 14px;">Dashboard 📊</a>
-            <a href="assigned_services.php" style="text-decoration: none; color: #475569; font-weight: 600; font-size: 14px;">Assigned Services 🛠️</a>
-            <a href="process_exchanges.php" style="text-decoration: none; color: #475569; font-weight: 600; font-size: 14px;">Process Exchanges 🔄</a>
+    <ul class="navbar-nav">
+        <li><a href="shop.php" class="nav-link">Home 🏠</a></li>
+        <li><a href="cart.php" class="nav-link">My Cart 🛒 (<?php echo $cart_count; ?>)</a></li>
+        <li><a href="my_orders.php" class="nav-link">My Orders 📦</a></li>
+        
+        <!-- Dynamically synchronized Points Badge -->
+        <li>
+            <div class="points-badge">
+                🌿 Points: <?php echo number_format($header_user_points); ?>
+            </div>
+        </li>
 
-            <span style="background: #10b981; color: white; padding: 6px 14px; border-radius: 20px; font-size: 13px; font-weight: 700;">
-                👨‍🌾 Staff Account
-            </span>
-            <a href="logout.php" style="background: #ffe4e6; color: #e11d48; text-decoration: none; padding: 6px 14px; border-radius: 20px; font-size: 13px; font-weight: 700;">
-                Logout
-            </a>
-
-        <?php elseif ($is_logged_in): ?>
-            <!-- Logged-in Customer Navigation -->
-            <a href="index.php" style="text-decoration: none; color: #475569; font-weight: 600; font-size: 14px;">Home 🏡</a>
-            <a href="cart.php" style="text-decoration: none; color: #475569; font-weight: 600; font-size: 14px;">My Cart 🛒</a>
-            <a href="my_orders.php" style="text-decoration: none; color: #475569; font-weight: 600; font-size: 14px;">My Orders 📦</a>
-
-            <!-- Loyalty Points Badge -->
-            <span style="background: #dcfce7; color: #15803d; border: 1px solid #86efac; padding: 6px 14px; border-radius: 20px; font-size: 13px; font-weight: 700;">
-                🌿 Points: <?php echo $loyalty_points; ?>
-            </span>
-
-            <span style="background: #e0f2fe; color: #0369a1; padding: 6px 14px; border-radius: 20px; font-size: 13px; font-weight: 700;">
-                👤 Customer
-            </span>
-            <a href="logout.php" style="background: #ffe4e6; color: #e11d48; text-decoration: none; padding: 6px 14px; border-radius: 20px; font-size: 13px; font-weight: 700;">
-                Logout
-            </a>
-
+        <?php if (isset($_SESSION['user_id']) || isset($_SESSION['customer_id']) || isset($_SESSION['Customer_ID'])): ?>
+            <li>
+                <div class="user-badge">
+                    👤 Customer
+                </div>
+            </li>
+            <li><a href="logout.php" class="btn-logout">Logout</a></li>
         <?php else: ?>
-            <!-- Guest Navigation (Not Logged In) -->
-            <a href="index.php" style="text-decoration: none; color: #475569; font-weight: 600; font-size: 14px;">Home 🏡</a>
-            <a href="login.php" style="background: #f1f5f9; color: #0f172a; text-decoration: none; padding: 8px 18px; border-radius: 20px; font-size: 14px; font-weight: 700;">
-                Log In
-            </a>
-            <a href="signup.php" style="background: #10b981; color: white; text-decoration: none; padding: 8px 18px; border-radius: 20px; font-size: 14px; font-weight: 700;">
-                Sign Up
-            </a>
+            <li><a href="login.php" class="nav-link">Login</a></li>
+            <li><a href="signup.php" class="nav-link">Sign Up</a></li>
         <?php endif; ?>
-    </nav>
+    </ul>
 </header>
+
+</body>
+</html>

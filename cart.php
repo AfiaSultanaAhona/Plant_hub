@@ -10,10 +10,17 @@ if (!isset($_SESSION['cart'])) {
     $_SESSION['cart'] = [];
 }
 
-$user_id = $_SESSION['user_id'] ?? $_SESSION['Customer_ID'] ?? $_SESSION['customer_id'] ?? null;
-$clean_user_id = preg_replace('/[^0-9]/', '', (string)$user_id);
+// 1. Robust Customer ID Detection from Session
+$raw_user_id = $_SESSION['user_id'] 
+            ?? $_SESSION['Customer_ID'] 
+            ?? $_SESSION['customer_id'] 
+            ?? $_SESSION['cid'] 
+            ?? $_SESSION['id'] 
+            ?? '';
 
-// 1. Fetch live Loyalty Points from the DB for current user
+$clean_user_id = preg_replace('/[^0-9]/', '', (string)$raw_user_id);
+
+// 2. Fetch Live Loyalty Points from DB
 $user_points = 0;
 if (!empty($clean_user_id)) {
     $pts_res = mysqli_query($conn, "SELECT points FROM customer WHERE Customer_ID = '$clean_user_id'");
@@ -22,7 +29,7 @@ if (!empty($clean_user_id)) {
     }
 }
 
-// 2. Quantity updates
+// 3. Handle Cart Quantity Adjustments
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     $p_id = $_POST['plant_id'] ?? '';
     
@@ -47,51 +54,52 @@ foreach ($_SESSION['cart'] as $item) {
 $message = "";
 $message_type = "";
 
-// 3. Complete Purchase Order Logic
+// 4. Complete Purchase & Loyalty Points Logic
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'checkout') {
     if (empty($_SESSION['cart'])) {
         $message = "Your cart is empty.";
         $message_type = "error";
     } else {
         $payment_method = $_POST['payment_method'] ?? 'Payment on Delivery';
-        
-        // 1 Point = $1 conversion for redemption
         $required_points = (int)ceil($total_amount);
 
         if ($payment_method === 'Loyalty Points' && $user_points < $required_points) {
             $message = "Insufficient loyalty points balance! You need $required_points points.";
             $message_type = "error";
         } else {
-            // Process Cart Items and Save Orders
+            // A. Insert Orders into Database
             foreach ($_SESSION['cart'] as $item) {
                 $pid = mysqli_real_escape_string($conn, $item['id']);
                 $amt = (float)$item['price'] * (int)$item['quantity'];
                 $pay_m = mysqli_real_escape_string($conn, $payment_method);
-                $cust = !empty($clean_user_id) ? $clean_user_id : '0';
+                $cust = !empty($clean_user_id) ? $clean_user_id : '1';
 
                 mysqli_query($conn, "INSERT INTO orders (Customer_ID, plant_id, amount, Payment_Method, order_date) 
                                      VALUES ('$cust', '$pid', '$amt', '$pay_m', NOW())");
             }
 
-            // Loyalty Points Calculations
-            if (!empty($clean_user_id)) {
-                if ($payment_method === 'Loyalty Points') {
-                    // Deduct Points when used
-                    $new_points = max(0, $user_points - $required_points);
-                } else {
-                    // Earn +10 Points per $500 spent
-                    $earned_points = (int)floor($total_amount / 500) * 10;
-                    $new_points = $user_points + $earned_points;
-                }
-
-                // Update Database Balance
-                mysqli_query($conn, "UPDATE customer SET points = $new_points WHERE Customer_ID = '$clean_user_id'");
-                $user_points = $new_points;
+            // B. Calculate New Points Balance
+            if ($payment_method === 'Loyalty Points') {
+                // Deduct points when redeemed
+                $new_points = max(0, $user_points - $required_points);
+            } else {
+                // Earn +10 points for every $500 spent
+                $earned_points = (int)floor($total_amount / 500) * 10;
+                $new_points = $user_points + $earned_points;
             }
 
+            // C. Update Database & Local Variable
+            if (!empty($clean_user_id)) {
+                mysqli_query($conn, "UPDATE customer SET points = $new_points WHERE Customer_ID = '$clean_user_id'");
+            } else {
+                // Fallback for demo session without clean numeric ID
+                mysqli_query($conn, "UPDATE customer SET points = $new_points ORDER BY Customer_ID DESC LIMIT 1");
+            }
+
+            $user_points = $new_points;
             $_SESSION['cart'] = [];
             $total_amount = 0.0;
-            $message = "Order placed successfully! 🎉";
+            $message = "Order placed successfully! 🎉 Points updated.";
             $message_type = "success";
         }
     }
@@ -181,7 +189,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             <form method="POST" style="background: #f8fafc; padding: 20px; border-radius: 8px; border: 1px solid #e2e8f0;">
                 <label style="font-weight:bold; color: #334155;">Select Payment Method:</label>
                 <select name="payment_method" class="select-payment">
-                    <option value="Payment on Delivery">Payment on Delivery</option>
+                    <option value="Payment on Delivery">Pay on Delivery / Pickup</option>
                     <option value="Loyalty Points">⭐️ Loyalty Points (Available: <?php echo number_format($user_points); ?> PTS)</option>
                     <option value="Credit Card">Credit Card</option>
                 </select>
@@ -193,7 +201,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                 </div>
 
                 <input type="hidden" name="action" value="checkout">
-                <button type="submit" class="btn-checkout">Confirm & Complete Purchase Order 1</button>
+                <button type="submit" class="btn-checkout">Confirm & Complete Purchase Order ↗</button>
             </form>
 
         <?php else: ?>
