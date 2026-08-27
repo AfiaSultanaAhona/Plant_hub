@@ -15,9 +15,12 @@ $message = "";
 
 // Handle Add to Cart
 if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST['action']) && $_POST['action'] === 'add_to_cart') {
-    $plant_id   = trim($_POST['plant_id'] ?? '');
+    $raw_id     = trim($_POST['plant_id'] ?? '');
     $plant_name = trim($_POST['plant_name'] ?? 'Plant');
     $price      = (float)($_POST['plant_price'] ?? 0);
+
+    // Generate clean ID fallback if raw_id is missing
+    $plant_id = !empty($raw_id) ? $raw_id : strtolower(preg_replace('/[^a-zA-Z0-9_]/', '', $plant_name));
 
     if (!empty($plant_id)) {
         if (isset($_SESSION['cart'][$plant_id])) {
@@ -182,9 +185,14 @@ if (!$has_outdoor_in_db) {
         foreach ($all_plants as $row) {
             $row_lower = array_change_key_case($row, CASE_LOWER);
             
-            $plant_id   = $row_lower['plant_id'] ?? $row_lower['id'] ?? array_values($row)[0];
+            $plant_id   = $row_lower['plant_id'] ?? $row_lower['id'] ?? array_values($row)[0] ?? null;
             $plant_name = $row_lower['plant_name'] ?? $row_lower['name'] ?? 'Plant';
             
+            // Fallback for missing plant_id in database loop
+            if (empty($plant_id)) {
+                $plant_id = strtolower(preg_replace('/[^a-zA-Z0-9_]/', '', $plant_name));
+            }
+
             // Resolve Category Name
             $plant_cat = 'General';
             foreach ($row as $k => $v) {
