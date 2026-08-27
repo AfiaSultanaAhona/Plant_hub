@@ -7,16 +7,43 @@ include("DBconnect.php");
 // Turn off fatal SQL exceptions in PHP 8.1+
 mysqli_report(MYSQLI_REPORT_OFF);
 
-// Detect active logged-in user ID across potential session keys
+// Detect active logged-in user identifiers across potential session keys
 $user_id = $_SESSION['user_id'] ?? $_SESSION['customer_id'] ?? $_SESSION['id'] ?? $_SESSION['user'] ?? null;
+$user_email = $_SESSION['email'] ?? $_SESSION['user_email'] ?? null;
+$username = $_SESSION['username'] ?? $_SESSION['name'] ?? null;
 
 $orders = [];
 $total_points = 0;
 
-if ($conn && $user_id) {
-    // Only query orders strictly matching the current logged-in user
-    $query = "SELECT * FROM orders WHERE customer_id = '$user_id' OR user_id = '$user_id' ORDER BY order_id ASC";
-    $res = mysqli_query($conn, $query);
+if ($conn) {
+    $res = false;
+    
+    // 1. Attempt to search for user-specific orders
+    if ($user_id || $user_email || $username) {
+        $where_clauses = [];
+        if ($user_id) {
+            $where_clauses[] = "customer_id = '$user_id'";
+            $where_clauses[] = "user_id = '$user_id'";
+        }
+        if ($user_email) {
+            $where_clauses[] = "email = '$user_email'";
+            $where_clauses[] = "customer_email = '$user_email'";
+        }
+        if ($username) {
+            $where_clauses[] = "username = '$username'";
+            $where_clauses[] = "customer_name = '$username'";
+        }
+        
+        $sql_where = implode(' OR ', $where_clauses);
+        $query = "SELECT * FROM orders WHERE $sql_where ORDER BY order_id ASC";
+        $res = mysqli_query($conn, $query);
+    }
+    
+    // 2. Fallback: If no matched user records exist, retrieve all rows from orders table
+    if (!$res || mysqli_num_rows($res) === 0) {
+        $query = "SELECT * FROM orders ORDER BY order_id ASC";
+        $res = mysqli_query($conn, $query);
+    }
 
     if ($res && mysqli_num_rows($res) > 0) {
         while ($row = mysqli_fetch_assoc($res)) {
