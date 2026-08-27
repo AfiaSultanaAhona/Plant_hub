@@ -14,7 +14,8 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
 
     if (!empty($role) && !empty($name) && !empty($email) && !empty($password)) {
         if ($role === "customer") {
-            $sql = "INSERT INTO customer (Customer_name, Email, Password) VALUES ('$name', '$email', '$password')";
+            // Set points to 0 by default for new customers
+            $sql = "INSERT INTO customer (Customer_name, Email, Password, points) VALUES ('$name', '$email', '$password', 0)";
             
             if (mysqli_query($conn, $sql)) {
                 $new_id = mysqli_insert_id($conn);
