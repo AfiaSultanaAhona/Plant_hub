@@ -4,7 +4,10 @@ if (session_status() === PHP_SESSION_NONE) {
 }
 include_once("DBconnect.php");
 
-// 1. Unified session check across all possible session key names
+// 1. Check Session Points First, Default to DB if available
+$header_user_points = $_SESSION['user_points'] ?? 0;
+
+// 2. Identify Logged-In User
 $user_id = $_SESSION['Customer_ID'] 
         ?? $_SESSION['user_id'] 
         ?? $_SESSION['customer_id'] 
@@ -12,18 +15,17 @@ $user_id = $_SESSION['Customer_ID']
         ?? $_SESSION['id'] 
         ?? null;
 
-$header_user_points = 0;
-
-// 2. Fetch live points balance directly from database
+// 3. Sync from DB if available and update session
 if ($user_id) {
     $clean_id = mysqli_real_escape_string($conn, $user_id);
     $pts_res = mysqli_query($conn, "SELECT points FROM customer WHERE Customer_ID = '$clean_id'");
     if ($pts_res && $p_row = mysqli_fetch_assoc($pts_res)) {
         $header_user_points = (int)($p_row['points'] ?? 0);
+        $_SESSION['user_points'] = $header_user_points; // Keep session synced
     }
 }
 
-// 3. Calculate total items currently in cart
+// 4. Cart Items Count
 $cart_count = 0;
 if (isset($_SESSION['cart']) && is_array($_SESSION['cart'])) {
     foreach ($_SESSION['cart'] as $item) {
@@ -117,14 +119,14 @@ if (isset($_SESSION['cart']) && is_array($_SESSION['cart'])) {
         <li><a href="cart.php" class="nav-link">My Cart 🛒 (<?php echo $cart_count; ?>)</a></li>
         <li><a href="my_orders.php" class="nav-link">My Orders 📦</a></li>
         
-        <!-- Live Synchronized Points Badge -->
+        <!-- Live Points Badge -->
         <li>
             <div class="points-badge">
                 🌿 Points: <?php echo number_format($header_user_points); ?>
             </div>
         </li>
 
-        <?php if ($user_id): ?>
+        <?php if ($user_id || isset($_SESSION['user_points'])): ?>
             <li><div class="user-badge">👤 Customer</div></li>
             <li><a href="logout.php" class="btn-logout">Logout</a></li>
         <?php else: ?>

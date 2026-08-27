@@ -10,7 +10,7 @@ if (!isset($_SESSION['cart'])) {
     $_SESSION['cart'] = [];
 }
 
-// 1. Unified Customer ID Check
+// 1. Identify active customer session
 $user_id = $_SESSION['Customer_ID'] 
         ?? $_SESSION['user_id'] 
         ?? $_SESSION['customer_id'] 
@@ -20,16 +20,18 @@ $user_id = $_SESSION['Customer_ID']
 
 $clean_id = $user_id ? mysqli_real_escape_string($conn, $user_id) : null;
 
-// 2. Query Live Customer Loyalty Points
-$user_points = 0;
+// 2. Load points from DB if available, otherwise read Session
+$user_points = $_SESSION['user_points'] ?? 0;
+
 if ($clean_id) {
     $pts_res = mysqli_query($conn, "SELECT points FROM customer WHERE Customer_ID = '$clean_id'");
     if ($pts_res && $p_row = mysqli_fetch_assoc($pts_res)) {
         $user_points = (int)($p_row['points'] ?? 0);
+        $_SESSION['user_points'] = $user_points;
     }
 }
 
-// 3. Handle Quantity Buttons (+ / - / remove)
+// 3. Cart Quantity Adjustments (+ / - / remove)
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     $p_id = $_POST['plant_id'] ?? '';
     
@@ -45,7 +47,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     }
 }
 
-// 4. Calculate Grand Total
+// Calculate Grand Total
 $total_amount = 0.0;
 foreach ($_SESSION['cart'] as $item) {
     $total_amount += ((float)$item['price'] * (int)$item['quantity']);
@@ -54,7 +56,7 @@ foreach ($_SESSION['cart'] as $item) {
 $message = "";
 $message_type = "";
 
-// 5. Checkout & Point Calculation Processing
+// 4. Order Checkout and Points Calculation Logic
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'checkout') {
     if (empty($_SESSION['cart'])) {
         $message = "Your cart is empty.";
@@ -67,7 +69,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             $message = "Insufficient loyalty points balance! You need $required_points points.";
             $message_type = "error";
         } else {
-            // A. Record the orders in database
+            // A. Insert Orders into DB
             foreach ($_SESSION['cart'] as $item) {
                 $pid = mysqli_real_escape_string($conn, $item['id']);
                 $amt = (float)$item['price'] * (int)$item['quantity'];
@@ -78,7 +80,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                                      VALUES ('$cust', '$pid', '$amt', '$pay_m', NOW())");
             }
 
-            // B. Calculate point additions or deductions (+10 PTS per $500 spent)
+            // B. Earn Points (+10 PTS per $500 spent) OR Spend Points
             if ($payment_method === 'Loyalty Points') {
                 $new_points = max(0, $user_points - $required_points);
             } else {
@@ -86,13 +88,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                 $new_points = $user_points + $earned_points;
             }
 
-            // C. Persist updated points balance to database
+            // C. Persist updated points to SESSION & DATABASE simultaneously
+            $_SESSION['user_points'] = $new_points;
+            $user_points = $new_points;
+
             if ($clean_id) {
                 mysqli_query($conn, "UPDATE customer SET points = $new_points WHERE Customer_ID = '$clean_id'");
+            } else {
+                // Fallback update for active session without explicit numeric ID
+                mysqli_query($conn, "UPDATE customer SET points = $new_points ORDER BY Customer_ID DESC LIMIT 1");
             }
 
-            // D. Refresh local variable & clear cart
-            $user_points = $new_points;
             $_SESSION['cart'] = [];
             $total_amount = 0.0;
             $message = "Order placed successfully! 🌿 Points updated.";
