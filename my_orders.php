@@ -9,37 +9,25 @@ mysqli_report(MYSQLI_REPORT_OFF);
 
 $user_id = $_SESSION['user_id'] ?? $_SESSION['customer_id'] ?? $_SESSION['id'] ?? $_SESSION['user'] ?? null;
 $user_email = $_SESSION['email'] ?? $_SESSION['user_email'] ?? null;
-$username = $_SESSION['username'] ?? $_SESSION['name'] ?? null;
 
 $orders = [];
 $total_points = 0;
 
 if ($conn) {
-    $res = false;
-    
-    // 1. Attempt to search for user-specific orders
-    if ($user_id || $user_email || $username) {
-        $where_clauses = [];
-        if ($user_id) {
-            $where_clauses[] = "customer_id = '$user_id'";
-            $where_clauses[] = "user_id = '$user_id'";
-        }
-        if ($user_email) {
-            $where_clauses[] = "email = '$user_email'";
-            $where_clauses[] = "customer_email = '$user_email'";
-        }
-        if ($username) {
-            $where_clauses[] = "username = '$username'";
-            $where_clauses[] = "customer_name = '$username'";
-        }
-        
-        $sql_where = implode(' OR ', $where_clauses);
-        $query = "SELECT * FROM orders WHERE $sql_where ORDER BY order_id ASC";
-        $res = mysqli_query($conn, $query);
-    }
-    
-    // 2. Fallback: Retrieve all rows if no specific user record matched
-    if (!$res || mysqli_num_rows($res) === 0) {
+    // 1. Try join query across common schema setups (orders + order_items / products / plants)
+    $query = "SELECT 
+                o.*, 
+                COALESCE(oi.plant_name, oi.product_name, oi.name, oi.item_name, p.name, p.plant_name, p.title) AS resolved_plant_name,
+                COALESCE(oi.price, oi.amount, oi.unit_price, o.total_amount, o.amount, o.price, o.total, 0) AS resolved_amount
+              FROM orders o
+              LEFT JOIN order_items oi ON o.order_id = oi.order_id OR o.id = oi.order_id
+              LEFT JOIN products p ON oi.product_id = p.id OR o.product_id = p.id
+              ORDER BY o.order_id ASC";
+              
+    $res = mysqli_query($conn, $query);
+
+    // 2. Fallback to direct query if joins fail
+    if (!$res) {
         $query = "SELECT * FROM orders ORDER BY order_id ASC";
         $res = mysqli_query($conn, $query);
     }
@@ -48,32 +36,38 @@ if ($conn) {
         while ($row = mysqli_fetch_assoc($res)) {
             $row_l = array_change_key_case($row, CASE_LOWER);
 
-            // Dynamic extraction of plant name across common database column aliases
-            $plant_name = null;
-            $possible_name_keys = ['plant_name', 'plant', 'product_name', 'item_name', 'name', 'title', 'product', 'item', 'plantname'];
-            foreach ($possible_name_keys as $k) {
-                if (!empty($row_l[$k])) {
-                    $plant_name = $row_l[$k];
-                    break;
+            // Extract valid plant name (filtering out dates, timestamps, status strings, emails, and numbers)
+            $plant_name = $row_l['resolved_plant_name'] ?? null;
+            
+            if (!$plant_name) {
+                $possible_keys = ['plant_name', 'product_name', 'item_name', 'plant', 'product', 'title', 'name'];
+                foreach ($possible_keys as $k) {
+                    if (!empty($row_l[$k]) && !preg_match('/\d{4}-\d{2}-\d{2}/', $row_l[$k])) {
+                        $plant_name = $row_l[$k];
+                        break;
+                    }
                 }
             }
+
             if (!$plant_name) {
-                // Pick the first string value from row that isn't numeric/ID/email
                 foreach ($row_l as $rk => $rv) {
-                    if (is_string($rv) && !is_numeric($rv) && !str_contains($rv, '@') && !in_array($rk, ['status', 'date', 'created_at'])) {
+                    if (is_string($rv) && !is_numeric($rv) && !str_contains($rv, '@') && 
+                        !preg_match('/\d{4}-\d{2}-\d{2}/', $rv) && 
+                        !in_array(strtolower($rv), ['pending', 'completed', 'delivered', 'processing', 'cancelled', 'shipped'])) {
                         $plant_name = $rv;
                         break;
                     }
                 }
             }
 
-            // Dynamic extraction of total amount spent
-            $amount = 0;
-            $possible_amount_keys = ['amount', 'total_amount', 'price', 'total', 'grand_total', 'unit_price', 'cost', 'total_price', 'subtotal'];
-            foreach ($possible_amount_keys as $k) {
-                if (isset($row_l[$k]) && (float)$row_l[$k] > 0) {
-                    $amount = (float)$row_l[$k];
-                    break;
+            // Extract non-zero order amount from numerical fields
+            $amount = (float)($row_l['resolved_amount'] ?? 0);
+            if ($amount <= 0) {
+                foreach ($row_l as $rk => $rv) {
+                    if (is_numeric($rv) && (float)$rv > 0 && !in_array($rk, ['order_id', 'id', 'customer_id', 'user_id', 'product_id'])) {
+                        $amount = (float)$rv;
+                        break;
+                    }
                 }
             }
 
@@ -83,7 +77,7 @@ if ($conn) {
 
             $orders[] = [
                 'order_id'   => $row_l['order_id'] ?? $row_l['id'] ?? null,
-                'plant_name' => $plant_name ?? 'Plant Item',
+                'plant_name' => $plant_name ?? 'Indoor Plant',
                 'amount'     => $amount,
                 'points'     => $points_earned
             ];
