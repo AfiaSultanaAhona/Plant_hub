@@ -13,18 +13,10 @@ $user_id = $_SESSION['user_id'] ?? $_SESSION['customer_id'] ?? $_SESSION['id'] ?
 $orders = [];
 $total_points = 0;
 
-if ($conn) {
-    // 1. Try fetching orders linked to the logged-in user
-    if ($user_id) {
-        $query = "SELECT * FROM orders WHERE customer_id = '$user_id' OR user_id = '$user_id' ORDER BY order_id ASC";
-        $res = mysqli_query($conn, $query);
-    }
-    
-    // 2. Fallback: If no user-specific records found, pull all orders from database
-    if (empty($res) || mysqli_num_rows($res) === 0) {
-        $query = "SELECT * FROM orders ORDER BY order_id ASC";
-        $res = mysqli_query($conn, $query);
-    }
+if ($conn && $user_id) {
+    // Only query orders strictly matching the current logged-in user
+    $query = "SELECT * FROM orders WHERE customer_id = '$user_id' OR user_id = '$user_id' ORDER BY order_id ASC";
+    $res = mysqli_query($conn, $query);
 
     if ($res && mysqli_num_rows($res) > 0) {
         while ($row = mysqli_fetch_assoc($res)) {
@@ -55,7 +47,7 @@ if ($conn) {
     <title>My Orders - Plant Hub</title>
     <style>
         body { background-color: #eef7f2; margin: 0; font-family: 'Segoe UI', sans-serif; }
-        .container { max-width: 1000px; margin: 40px auto; padding: 0 20px; }
+        .container { max-width: 1050px; margin: 40px auto; padding: 0 20px; }
         
         .top-nav { display: flex; justify-content: space-between; align-items: center; padding: 15px 30px; background: #ffffff; box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
         .brand { font-size: 22px; font-weight: 800; color: #15803d; text-decoration: none; display: flex; align-items: center; gap: 8px; }
@@ -75,7 +67,9 @@ if ($conn) {
         .history-table th { text-align: left; padding: 12px 16px; border-bottom: 2px solid #f3f4f6; color: #4b5563; font-size: 14px; }
         .history-table td { padding: 16px; border-bottom: 1px solid #f3f4f6; color: #1f2937; font-size: 14px; }
         
-        .btn-exchange { background-color: #f59e0b; color: white; border: none; padding: 8px 14px; border-radius: 6px; font-weight: 700; font-size: 13px; cursor: pointer; }
+        .exchange-box { display: flex; gap: 8px; align-items: center; }
+        .select-reason { padding: 6px 10px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 13px; color: #374151; background: #fff; }
+        .btn-exchange { background-color: #f59e0b; color: white; border: none; padding: 7px 12px; border-radius: 6px; font-weight: 700; font-size: 13px; cursor: pointer; transition: background 0.2s; }
         .btn-exchange:hover { background-color: #d97706; }
         .empty-msg { text-align: center; color: #6b7280; padding: 20px; font-weight: 600; }
     </style>
@@ -119,7 +113,7 @@ if ($conn) {
                         <th>Plant Name</th>
                         <th>Amount</th>
                         <th>Points Earned</th>
-                        <th>Action</th>
+                        <th>Exchange Request</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -134,7 +128,17 @@ if ($conn) {
                             <td style="color: #10b981; font-weight: 800;">৳<?php echo number_format($item['amount'], 2); ?></td>
                             <td style="color: #f59e0b; font-weight: 700;">+ <?php echo $item['points']; ?> PTS</td>
                             <td>
-                                <button class="btn-exchange">Request Exchange 🔄</button>
+                                <form action="request_exchange.php" method="POST" class="exchange-box">
+                                    <input type="hidden" name="order_id" value="<?php echo htmlspecialchars($item['order_id']); ?>">
+                                    <select name="reason" class="select-reason" required>
+                                        <option value="" disabled selected>Select reason...</option>
+                                        <option value="Damaged Plant">Damaged / Unhealthy</option>
+                                        <option value="Wrong Item">Received Wrong Item</option>
+                                        <option value="Size Issue">Different Size than Expected</option>
+                                        <option value="Other">Other</option>
+                                    </select>
+                                    <button type="submit" class="btn-exchange">Request Exchange 🔄</button>
+                                </form>
                             </td>
                         </tr>
                     <?php 
