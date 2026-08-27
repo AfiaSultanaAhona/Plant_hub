@@ -20,16 +20,20 @@ $user_id = $_SESSION['Customer_ID']
 
 $clean_id = $user_id ? mysqli_real_escape_string($conn, $user_id) : null;
 
-// 2. Load points from DB if available, otherwise read Session
-$user_points = $_SESSION['user_points'] ?? 0;
+// 2. Default points balance to 0
+$user_points = 0;
 
 if ($clean_id) {
     $pts_res = mysqli_query($conn, "SELECT points FROM customer WHERE Customer_ID = '$clean_id'");
     if ($pts_res && $p_row = mysqli_fetch_assoc($pts_res)) {
         $user_points = (int)($p_row['points'] ?? 0);
-        $_SESSION['user_points'] = $user_points;
     }
+} else if (isset($_SESSION['user_points'])) {
+    $user_points = (int)$_SESSION['user_points'];
 }
+
+// Store current state back into session
+$_SESSION['user_points'] = $user_points;
 
 // 3. Cart Quantity Adjustments (+ / - / remove)
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
@@ -56,7 +60,7 @@ foreach ($_SESSION['cart'] as $item) {
 $message = "";
 $message_type = "";
 
-// 4. Order Checkout and Points Calculation Logic
+// 4. Order Checkout and Earn/Spend Points Logic
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'checkout') {
     if (empty($_SESSION['cart'])) {
         $message = "Your cart is empty.";
@@ -80,7 +84,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                                      VALUES ('$cust', '$pid', '$amt', '$pay_m', NOW())");
             }
 
-            // B. Earn Points (+10 PTS per $500 spent) OR Spend Points
+            // B. Earn +10 PTS per ৳500 spent OR Deduct Points on redemption
             if ($payment_method === 'Loyalty Points') {
                 $new_points = max(0, $user_points - $required_points);
             } else {
@@ -94,9 +98,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 
             if ($clean_id) {
                 mysqli_query($conn, "UPDATE customer SET points = $new_points WHERE Customer_ID = '$clean_id'");
-            } else {
-                // Fallback update for active session without explicit numeric ID
-                mysqli_query($conn, "UPDATE customer SET points = $new_points ORDER BY Customer_ID DESC LIMIT 1");
             }
 
             $_SESSION['cart'] = [];
@@ -142,7 +143,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     <div class="grid-stats">
         <div class="stat-card">
             <h4>Store Wallet Balance 💳</h4>
-            <span class="val">$0.00</span>
+            <span class="val">৳0.00</span>
         </div>
         <div class="stat-card points-card">
             <h4>Loyalty Points Balance ⭐️</h4>
@@ -173,7 +174,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                     <?php foreach ($_SESSION['cart'] as $item): ?>
                         <tr>
                             <td style="font-weight:600;"><?php echo htmlspecialchars($item['name']); ?></td>
-                            <td style="color:#10b981; font-weight:bold;">$<?php echo number_format((float)$item['price'], 2); ?></td>
+                            <td style="color:#10b981; font-weight:bold;">৳<?php echo number_format((float)$item['price'], 2); ?></td>
                             <td>
                                 <form method="POST" style="display:inline-flex; align-items:center; gap:8px;">
                                     <input type="hidden" name="plant_id" value="<?php echo htmlspecialchars($item['id']); ?>">
@@ -182,7 +183,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                                     <button type="submit" name="action" value="increase" class="btn-qty">+</button>
                                 </form>
                             </td>
-                            <td style="color:#10b981; font-weight:bold;">$<?php echo number_format((float)$item['price'] * (int)$item['quantity'], 2); ?></td>
+                            <td style="color:#10b981; font-weight:bold;">৳<?php echo number_format((float)$item['price'] * (int)$item['quantity'], 2); ?></td>
                         </tr>
                     <?php endforeach; ?>
                 </tbody>
@@ -198,7 +199,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 
                 <div style="text-align: right; margin-top: 25px;">
                     <span style="font-size: 24px; font-weight: 800; color: #0f172a;">
-                        Final Total: <span style="color:#10b981;">$<?php echo number_format($total_amount, 2); ?></span>
+                        Final Total: <span style="color:#10b981;">৳<?php echo number_format($total_amount, 2); ?></span>
                     </span>
                 </div>
 
