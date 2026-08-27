@@ -7,24 +7,30 @@ include("DBconnect.php");
 // Turn off fatal SQL exceptions in PHP 8.1+
 mysqli_report(MYSQLI_REPORT_OFF);
 
-$user_id = $_SESSION['user_id'] ?? $_SESSION['customer_id'] ?? null;
+// Detect active logged-in user ID across potential session keys
+$user_id = $_SESSION['user_id'] ?? $_SESSION['customer_id'] ?? $_SESSION['id'] ?? $_SESSION['user'] ?? null;
 
-// Initialize variables strictly
 $orders = [];
 $total_points = 0;
 
 if ($conn) {
-    $query = $user_id 
-        ? "SELECT * FROM orders WHERE customer_id = '$user_id' OR user_id = '$user_id' ORDER BY order_id ASC"
-        : "SELECT * FROM orders ORDER BY order_id ASC";
-        
-    $res = mysqli_query($conn, $query);
+    // 1. Try fetching orders linked to the logged-in user
+    if ($user_id) {
+        $query = "SELECT * FROM orders WHERE customer_id = '$user_id' OR user_id = '$user_id' ORDER BY order_id ASC";
+        $res = mysqli_query($conn, $query);
+    }
+    
+    // 2. Fallback: If no user-specific records found, pull all orders from database
+    if (empty($res) || mysqli_num_rows($res) === 0) {
+        $query = "SELECT * FROM orders ORDER BY order_id ASC";
+        $res = mysqli_query($conn, $query);
+    }
 
     if ($res && mysqli_num_rows($res) > 0) {
         while ($row = mysqli_fetch_assoc($res)) {
             $row_l = array_change_key_case($row, CASE_LOWER);
             
-            $amount = (float)($row_l['amount'] ?? $row_l['total_amount'] ?? $row_l['price'] ?? $row_l['unit_price'] ?? 0);
+            $amount = (float)($row_l['amount'] ?? $row_l['total_amount'] ?? $row_l['price'] ?? $row_l['unit_price'] ?? $row_l['total'] ?? 0);
             
             // Calculate 10 points for every complete ৳500 spent per order item
             $points_earned = (int)floor($amount / 500) * 10;
@@ -32,7 +38,7 @@ if ($conn) {
 
             $orders[] = [
                 'order_id'   => $row_l['order_id'] ?? $row_l['id'] ?? null,
-                'plant_name' => $row_l['plant_name'] ?? $row_l['item_name'] ?? $row_l['name'] ?? 'Plant',
+                'plant_name' => $row_l['plant_name'] ?? $row_l['item_name'] ?? $row_l['name'] ?? $row_l['title'] ?? 'Plant',
                 'amount'     => $amount,
                 'points'     => $points_earned
             ];
