@@ -4,7 +4,7 @@ if (session_status() === PHP_SESSION_NONE) {
 }
 include("DBconnect.php");
 
-// Turn off fatal SQL exceptions in PHP 8.1+
+// Enable error reporting so database execution errors are displayed
 mysqli_report(MYSQLI_REPORT_OFF);
 
 if (!isset($_SESSION['cart'])) {
@@ -12,23 +12,46 @@ if (!isset($_SESSION['cart'])) {
 }
 
 $message = "";
+$debug_error = "";
 
 // -------------------------------------------------------------
-// LOYALTY SYSTEM FUNCTIONS & HELPERS
+// DYNAMIC COLUMN DETECTION HELPERS
 // -------------------------------------------------------------
 
-// Active logged-in customer ID handling (supports "C1", "1", etc.)
-$customer_id = $_SESSION['customer_id'] ?? $_SESSION['user_id'] ?? 'C1';
+function getCustomerColumnName($conn) {
+    static $col_name = null;
+    if ($col_name !== null) return $col_name;
+
+    $res = mysqli_query($conn, "SHOW COLUMNS FROM customer");
+    if ($res) {
+        while ($row = mysqli_fetch_assoc($res)) {
+            $field = $row['Field'];
+            $field_lower = strtolower($field);
+            if (in_array($field_lower, ['customer_id', 'cid', 'id'])) {
+                $col_name = $field;
+                return $col_name;
+            }
+        }
+    }
+    $col_name = 'Customer_ID'; // Fallback default
+    return $col_name;
+}
+
+// -------------------------------------------------------------
+// LOYALTY SYSTEM FUNCTIONS
+// -------------------------------------------------------------
+
+// Active customer ID from session or default test value
+$customer_id = $_SESSION['customer_id'] ?? $_SESSION['user_id'] ?? $_SESSION['Customer_ID'] ?? 'C1';
 
 function getCustomerLoyaltyData($conn, $customer_id) {
     if (empty($customer_id)) return ['points' => 0, 'tier' => 'Bronze', 'badge' => '🥉'];
     
-    // Extract numeric part while preserving string check for dual database schema compatibility
+    $col_name = getCustomerColumnName($conn);
     $cid_numeric = (int)preg_replace('/[^0-9]/', '', (string)$customer_id);
     $safe_id = mysqli_real_escape_string($conn, (string)$customer_id);
 
-    // Query checking both formatted ID ('C1') and numeric ID (1)
-    $sql = "SELECT points FROM customer WHERE Customer_ID = '$safe_id' OR Customer_ID = '$cid_numeric' OR Customer_ID = $cid_numeric LIMIT 1";
+    $sql = "SELECT points FROM customer WHERE `$col_name` = '$safe_id' OR `$col_name` = '$cid_numeric' OR `$col_name` = $cid_numeric LIMIT 1";
     $res = mysqli_query($conn, $sql);
     
     $pts = 0;
@@ -49,25 +72,31 @@ function getCustomerLoyaltyData($conn, $customer_id) {
     return ['points' => $pts, 'tier' => $tier, 'badge' => $badge];
 }
 
-function updateCustomerPoints($conn, $customer_id, $points_delta) {
+function updateCustomerPoints($conn, $customer_id, $points_delta, &$debug_error) {
     if (empty($customer_id) || $points_delta == 0) return false;
     
+    $col_name = getCustomerColumnName($conn);
     $cid_numeric = (int)preg_replace('/[^0-9]/', '', (string)$customer_id);
     $safe_id = mysqli_real_escape_string($conn, (string)$customer_id);
 
-    // Update using multi-condition check to ensure database row match regardless of 'C' prefix column type
+    // Dynamic UPDATE query supporting both integer and VARCHAR primary keys
     $sql = "UPDATE customer 
-            SET points = GREATEST(0, points + ($points_delta)) 
-            WHERE Customer_ID = '$safe_id' OR Customer_ID = '$cid_numeric' OR Customer_ID = $cid_numeric";
+            SET points = GREATEST(0, COALESCE(points, 0) + ($points_delta)) 
+            WHERE `$col_name` = '$safe_id' OR `$col_name` = '$cid_numeric' OR `$col_name` = $cid_numeric";
             
-    return mysqli_query($conn, $sql);
+    $result = mysqli_query($conn, $sql);
+    if (!$result) {
+        $debug_error = "Database Error during points update: " . mysqli_error($conn);
+    } elseif (mysqli_affected_rows($conn) == 0) {
+        $debug_error = "Warning: No customer row found matching Customer ID '$safe_id' or '$cid_numeric' in column '$col_name'.";
+    }
+    return $result;
 }
 
 // -------------------------------------------------------------
 // FORM ACTIONS: Add to Cart & Loyalty Checkout Handler
 // -------------------------------------------------------------
 
-// Handle Add to Cart
 if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST['action']) && $_POST['action'] === 'add_to_cart') {
     $raw_id     = trim($_POST['plant_id'] ?? '');
     $plant_name = trim($_POST['plant_name'] ?? 'Plant');
@@ -90,7 +119,6 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST['action']) && $_POST['
     }
 }
 
-// Handle Order Checkout & Loyalty Calculation
 if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST['action']) && $_POST['action'] === 'process_checkout') {
     $cart = $_SESSION['cart'] ?? [];
     $use_points = isset($_POST['redeem_points']) && $_POST['redeem_points'] === '1';
@@ -107,7 +135,6 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST['action']) && $_POST['
         $final_paid_amount = $raw_total;
         $points_deducted = 0;
 
-        // Apply Loyalty Points Redemption (1 Point = ৳1)
         if ($use_points && $current_pts > 0) {
             if ($current_pts >= $raw_total) {
                 $points_deducted = (int)$raw_total;
@@ -116,34 +143,34 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST['action']) && $_POST['
                 $points_deducted = $current_pts;
                 $final_paid_amount = $raw_total - $current_pts;
             }
-            // Deduct redeemed points from database
-            updateCustomerPoints($conn, $customer_id, -$points_deducted);
+            updateCustomerPoints($conn, $customer_id, -$points_deducted, $debug_error);
         }
 
         // Earn Points: 10 PTS for every ৳500 paid in cash/card
         $earned_points = 0;
         if ($final_paid_amount >= 500 && !$use_points) {
             $earned_points = (int)(floor($final_paid_amount / 500) * 10);
-            updateCustomerPoints($conn, $customer_id, $earned_points);
+            updateCustomerPoints($conn, $customer_id, $earned_points, $debug_error);
         }
 
-        // Insert Orders into Database
         foreach ($cart as $item) {
             $p_id = $item['id'];
             $amt = $item['price'] * $item['quantity'];
             $pay_method = $use_points ? 'Loyalty Points' : 'Cash on Delivery';
-            $safe_cust_id = mysqli_real_escape_string($conn, $customer_id);
+            $safe_cust_id = mysqli_real_escape_string($conn, (string)$customer_id);
             mysqli_query($conn, "INSERT INTO orders (Customer_ID, plant_id, amount, Payment_Method, order_date) 
                                  VALUES ('$safe_cust_id', '$p_id', '$amt', '$pay_method', NOW())");
         }
 
         $_SESSION['cart'] = [];
-        $message = "🎉 Order placed successfully! Paid: ৳" . number_format($final_paid_amount, 2) . 
-                   " | Earned: +" . $earned_points . " PTS | Redeemed: -" . $points_deducted . " PTS.";
+        if (empty($debug_error)) {
+            $message = "🎉 Order placed successfully! Paid: ৳" . number_format($final_paid_amount, 2) . 
+                       " | Earned: +" . $earned_points . " PTS | Redeemed: -" . $points_deducted . " PTS.";
+        }
     }
 }
 
-// Fetch Live Loyalty Info for Logged-In Customer
+// Fetch Live Loyalty Info
 $cust_loyalty = getCustomerLoyaltyData($conn, $customer_id);
 $cart_count = array_sum(array_column($_SESSION['cart'], 'quantity'));
 $selected_category = $_GET['category'] ?? 'All';
@@ -152,7 +179,6 @@ $selected_category = $_GET['category'] ?? 'All';
 // CATALOG DATA PREPARATION
 // -------------------------------------------------------------
 
-// 1. Map Suppliers
 $suppliers_map = [];
 $sup_res = mysqli_query($conn, "SELECT * FROM supplier");
 if ($sup_res) {
@@ -166,7 +192,6 @@ if ($sup_res) {
     }
 }
 
-// 2. Map Category IDs to Names
 $category_map = [
     '1' => 'Indoor Plants',
     '2' => 'Outdoor Plants',
@@ -195,7 +220,6 @@ function resolveCategoryName($val, $map) {
 
 $categories = ['All', 'Indoor Plants', 'Outdoor Plants', 'Flowering Plants'];
 
-// 3. Fetch Database Plants
 $all_plants = [];
 $has_outdoor_in_db = false;
 
@@ -216,7 +240,6 @@ if ($res && mysqli_num_rows($res) > 0) {
     }
 }
 
-// Fallback: Add missing items if not found in database
 if (!$has_outdoor_in_db) {
     $all_plants[] = ['Plant_ID' => '901', 'Plant_name' => 'Bougainvillea', 'Unit_price' => 220.00, 'Category_ID' => '2', 'supplier_id' => '1', 'Stock_quantity' => 12, 'sunlight' => 'Full Sun', 'watering' => 'Weekly', 'difficulty' => 'Easy'];
     $all_plants[] = ['Plant_ID' => '902', 'Plant_name' => 'Areca Palm Tree', 'Unit_price' => 450.00, 'Category_ID' => '2', 'supplier_id' => '1', 'Stock_quantity' => 5, 'sunlight' => 'Partial Shade', 'watering' => 'Twice Weekly', 'difficulty' => 'Moderate'];
@@ -235,8 +258,8 @@ if (!$has_outdoor_in_db) {
         .container { max-width: 1000px; margin: 40px auto; padding: 0 20px; }
         .header-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
         .alert-success { background-color: #d1fae5; color: #065f46; border: 1px solid #a7f3d0; padding: 14px; border-radius: 8px; margin-bottom: 25px; text-align: center; }
+        .alert-danger { background-color: #fee2e2; color: #991b1b; border: 1px solid #fca5a5; padding: 14px; border-radius: 8px; margin-bottom: 25px; text-align: center; font-weight: bold; }
         
-        /* Loyalty Status Bar UI */
         .loyalty-banner { background: #ffffff; border: 2px solid #10b981; border-radius: 12px; padding: 18px 24px; margin-bottom: 25px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 4px 12px rgba(0,0,0,0.04); }
         .loyalty-info h4 { margin: 0 0 4px 0; font-size: 16px; color: #065f46; }
         .loyalty-info p { margin: 0; font-size: 13px; color: #4b5563; }
@@ -290,6 +313,10 @@ if (!$has_outdoor_in_db) {
             <span><?php echo number_format($cust_loyalty['points']); ?> PTS (৳<?php echo number_format($cust_loyalty['points']); ?>)</span>
         </div>
     </div>
+
+    <?php if (!empty($debug_error)): ?>
+        <div class="alert-danger"><?php echo $debug_error; ?></div>
+    <?php endif; ?>
 
     <?php if (!empty($message)): ?>
         <div class="alert-success"><?php echo $message; ?></div>
@@ -349,7 +376,6 @@ if (!$has_outdoor_in_db) {
                 $plant_id = strtolower(preg_replace('/[^a-zA-Z0-9_]/', '', $plant_name));
             }
 
-            // Resolve Category Name
             $plant_cat = 'General';
             foreach ($row as $k => $v) {
                 $kl = strtolower($k);
@@ -359,12 +385,10 @@ if (!$has_outdoor_in_db) {
                 }
             }
 
-            // Category Filtering Logic
             if ($selected_category !== 'All' && strtolower(trim($plant_cat)) !== strtolower(trim($selected_category))) {
                 continue;
             }
 
-            // Resolve Supplier
             $sup_id = $row_lower['supplier_id'] ?? $row_lower['supplier'] ?? null;
             $supplier_name = 'GreenFlora Nursery';
             if ($sup_id && isset($suppliers_map[$sup_id])) {
@@ -373,7 +397,6 @@ if (!$has_outdoor_in_db) {
                 $supplier_name = $row_lower['supplier_name'];
             }
 
-            // Resolve Price & Stock
             $raw_price = $row_lower['unit_price'] ?? $row_lower['price'] ?? $row_lower['amount'] ?? 100;
             $stock = isset($row_lower['stock_quantity']) ? (int)$row_lower['stock_quantity'] : (int)($row_lower['stock'] ?? 0);
             $sunlight = htmlspecialchars($row_lower['sunlight'] ?? 'Indirect Light');
