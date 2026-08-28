@@ -4,14 +4,14 @@ if (session_status() === PHP_SESSION_NONE) {
 }
 include("DBconnect.php");
 
-// 1. Employee Session Security Check
+// Session validation
 $employee_id = $_SESSION['Employee_id'] ?? $_SESSION['employee_id'] ?? $_SESSION['user_id'] ?? null;
 if (!$employee_id) {
     header("Location: login.php");
     exit;
 }
 
-// 2. Role Check and Username Resolution
+// Determine user role badge display
 $is_employee = isset($_SESSION['Employee_id']) || isset($_SESSION['employee_id']) || (isset($_SESSION['role']) && $_SESSION['role'] === 'employee');
 $role_label = $is_employee ? '👤 Employee' : '👤 Customer';
 
@@ -53,24 +53,24 @@ $emp_username = $_SESSION['username'] ?? $_SESSION['Employee_name'] ?? ('emp' . 
 </head>
 <body>
 
-<!-- Header Navigation -->
+<!-- Header Navigation with Inventory Added -->
 <div class="navbar">
     <a href="employee_dashboard.php" class="logo">🌱 Plant Hub</a>
     <div class="nav-links">
         <a href="employee_dashboard.php">Home 🏠</a>
+        <a href="show_plant.php">Inventory 🌿</a>
         <div class="user-badge"><?php echo $role_label; ?></div>
         <a href="logout.php" class="btn-logout">Logout</a>
     </div>
 </div>
 
 <div class="container">
-    <!-- Welcome Banner -->
     <div class="hero-banner">
         <h1>Employee Operations Dashboard 📊</h1>
         <p>Welcome back, <strong><?php echo htmlspecialchars($emp_username); ?></strong>. Here is your operational overview for today.</p>
     </div>
 
-    <!-- Quick Management Action Cards (Routes to specific separate PHP pages) -->
+    <!-- Quick Management Actions -->
     <div class="section-title">⚡ Quick Management Actions</div>
     <div class="quick-actions">
         <a href="add_plant.php" class="action-card">
@@ -98,7 +98,7 @@ $emp_username = $_SESSION['username'] ?? $_SESSION['Employee_name'] ?? ('emp' . 
         </a>
     </div>
 
-    <!-- System Overview Section -->
+    <!-- System Overview -->
     <div class="section-title">📈 System Overview</div>
     <div class="stats-grid">
         <div class="stat-card">
