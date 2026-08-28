@@ -2,93 +2,81 @@
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
-include_once("DBconnect.php");
 
-// Turn off fatal SQL exceptions for safety
-mysqli_report(MYSQLI_REPORT_OFF);
+// Check logged in status & user role from session
+$is_logged_in = isset($_SESSION['user_id']) || isset($_SESSION['user']) || isset($_SESSION['email']) || isset($_SESSION['role']);
+$role = strtolower($_SESSION['role'] ?? $_SESSION['user_role'] ?? 'customer'); 
 
-// Default points to 0
-$user_points = 0;
-$tier_label = "Bronze Tier";
+// Fetch live Loyalty Points for logged-in customers
+$loyalty_points = 0;
+if ($is_logged_in && $role === 'customer') {
+    if (file_exists("DBconnect.php")) {
+        include_once("DBconnect.php");
+    } elseif (file_exists("../DBconnect.php")) {
+        include_once("../DBconnect.php");
+    }
 
-// Determine logged-in user and fetch clean points
-if (isset($_SESSION['customer_id']) || isset($_SESSION['user_id']) || isset($_SESSION['id'])) {
-    $raw_id = $_SESSION['customer_id'] ?? $_SESSION['user_id'] ?? $_SESSION['id'];
-    $clean_id = mysqli_real_escape_string($conn, (string)$raw_id);
-    
-    // Extract numbers only if prefixed (e.g., 'C101' -> '101')
-    $numeric_id = preg_replace('/[^0-9]/', '', $clean_id);
-
-    // Query points safely from database
-    $query = "SELECT points FROM customer WHERE Customer_ID = '$clean_id' OR Customer_ID = '$numeric_id' LIMIT 1";
-    $result = mysqli_query($conn, $query);
-
-    if ($result && $row = mysqli_fetch_assoc($result)) {
-        // Explicitly parse points as an integer
-        $user_points = isset($row['points']) ? (int)$row['points'] : 0;
+    if (isset($conn) && isset($_SESSION['user_id'])) {
+        $raw_cust_id = (int)preg_replace('/[^0-9]/', '', $_SESSION['user_id']);
+        $pts_query = "SELECT Loyalty_points FROM customer WHERE Customer_id = $raw_cust_id LIMIT 1";
+        $pts_result = mysqli_query($conn, $pts_query);
+        if ($pts_result && $pts_row = mysqli_fetch_assoc($pts_result)) {
+            $loyalty_points = (int)($pts_row['Loyalty_points'] ?? 0);
+        }
     }
 }
-
-// Calculate Tier based on points
-if ($user_points >= 1000) {
-    $tier_label = "Gold Tier";
-} elseif ($user_points >= 500) {
-    $tier_label = "Silver Tier";
-} else {
-    $tier_label = "Bronze Tier";
-}
-
-$cart_count = isset($_SESSION['cart']) ? array_sum(array_column($_SESSION['cart'], 'quantity')) : 0;
 ?>
 
-<!-- Header HTML Component -->
-<header style="background: #ffffff; border-bottom: 1px solid #e5e7eb; padding: 12px 24px;">
-    <div style="max-width: 1200px; margin: 0 auto; display: flex; justify-content: space-between; align-items: center;">
-        
-        <!-- Brand Logo -->
-        <a href="shop.php" style="display: flex; align-items: center; gap: 8px; text-decoration: none;">
-            <span style="font-size: 22px;">🌿</span>
-            <span style="font-size: 22px; font-weight: 800; color: #065f46;">Plant Hub</span>
-        </a>
+<header style="background: white; border-bottom: 1px solid #e2e8f0; padding: 15px 30px; display: flex; align-items: center; justify-content: space-between;">
+    <!-- Logo -->
+    <a href="index.php" style="font-size: 22px; font-weight: 800; color: #15803d; text-decoration: none; display: flex; align-items: center; gap: 8px;">
+        🌿 Plant Hub
+    </a>
 
-        <!-- Navigation Links -->
-        <nav style="display: flex; align-items: center; gap: 18px;">
-            <a href="shop.php" style="color: #374151; text-decoration: none; font-weight: 600; font-size: 14px;">Home 🏠</a>
-            <a href="cart.php" style="color: #374151; text-decoration: none; font-weight: 600; font-size: 14px;">
-                My Cart 🛒 (<?php echo $cart_count; ?>)
+    <!-- Navigation Links -->
+    <nav style="display: flex; gap: 20px; align-items: center;">
+        <?php if ($is_logged_in && ($role === 'staff' || $role === 'admin' || $role === 'employee')): ?>
+            <!-- Staff Navigation -->
+            <a href="sales_dashboard.php" style="text-decoration: none; color: #475569; font-weight: 600; font-size: 14px;">Sales Tracking 📈</a>
+            <a href="inventory.php" style="text-decoration: none; color: #475569; font-weight: 600; font-size: 14px;">Inventory 🌿</a>
+            <a href="employee_dashboard.php" style="text-decoration: none; color: #475569; font-weight: 600; font-size: 14px;">Dashboard 📊</a>
+            <a href="assigned_services.php" style="text-decoration: none; color: #475569; font-weight: 600; font-size: 14px;">Assigned Services 🛠️</a>
+            <a href="process_exchanges.php" style="text-decoration: none; color: #475569; font-weight: 600; font-size: 14px;">Process Exchanges 🔄</a>
+
+            <span style="background: #10b981; color: white; padding: 6px 14px; border-radius: 20px; font-size: 13px; font-weight: 700;">
+                👨‍🌾 Staff Account
+            </span>
+            <a href="logout.php" style="background: #ffe4e6; color: #e11d48; text-decoration: none; padding: 6px 14px; border-radius: 20px; font-size: 13px; font-weight: 700;">
+                Logout
             </a>
-            <a href="my_orders.php" style="color: #374151; text-decoration: none; font-weight: 600; font-size: 14px;">My Orders 📦</a>
 
-            <?php 
-            $role = $_SESSION['role'] ?? '';
-            if ($role === 'employee'): 
-            ?>
-                <!-- Employee-only links -->
-                <a href="employee_dashboard.php" style="color: #374151; text-decoration: none; font-weight: 600; font-size: 14px;">Dashboard 📊</a>
-                <a href="purchase/show_purchase.php" style="color: #374151; text-decoration: none; font-weight: 600; font-size: 14px;">Purchases 📦</a>
-                <a href="audit_log.php" style="color: #374151; text-decoration: none; font-weight: 600; font-size: 14px;">Audit Log 🔍</a>
-            <?php endif; ?>
+        <?php elseif ($is_logged_in): ?>
+            <!-- Logged-in Customer Navigation -->
+            <a href="index.php" style="text-decoration: none; color: #475569; font-weight: 600; font-size: 14px;">Home 🏡</a>
+            <a href="cart.php" style="text-decoration: none; color: #475569; font-weight: 600; font-size: 14px;">My Cart 🛒</a>
+            <a href="my_orders.php" style="text-decoration: none; color: #475569; font-weight: 600; font-size: 14px;">My Orders 📦</a>
 
-            <!-- Customer Loyalty Points Badge -->
-            <div style="background-color: #d1fae5; color: #065f46; border: 1px solid #6ee7b7; padding: 6px 14px; border-radius: 20px; font-weight: 700; font-size: 14px; display: flex; align-items: center; gap: 6px;">
-                <span>🌿</span>
-                <span>Points: <?php echo number_format($user_points); ?></span>
-            </div>
+            <!-- Loyalty Points Badge -->
+            <span style="background: #dcfce7; color: #15803d; border: 1px solid #86efac; padding: 6px 14px; border-radius: 20px; font-size: 13px; font-weight: 700;">
+                🌿 Points: <?php echo $loyalty_points; ?>
+            </span>
 
-            <!-- Profile & Action Buttons -->
-            <?php if (isset($_SESSION['customer_id']) || isset($_SESSION['user_id'])): ?>
-                <a href="my_account.php" style="background: #e0e7ff; color: #3730a3; padding: 6px 12px; border-radius: 8px; font-size: 14px; font-weight: 600; text-decoration: none; display: flex; align-items: center; gap: 4px;">
-                    👤 <?php echo $role === 'employee' ? 'Staff' : 'My Account'; ?>
-                </a>
-                <a href="logout.php" style="background: #ffe4e6; color: #e11d48; padding: 6px 14px; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 14px;">
-                    Logout
-                </a>
-            <?php else: ?>
-                <a href="login.php" style="background: #10b981; color: white; padding: 6px 16px; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 14px;">
-                    Login
-                </a>
-            <?php endif; ?>
-        </nav>
+            <span style="background: #e0f2fe; color: #0369a1; padding: 6px 14px; border-radius: 20px; font-size: 13px; font-weight: 700;">
+                👤 Customer
+            </span>
+            <a href="logout.php" style="background: #ffe4e6; color: #e11d48; text-decoration: none; padding: 6px 14px; border-radius: 20px; font-size: 13px; font-weight: 700;">
+                Logout
+            </a>
 
-    </div>
+        <?php else: ?>
+            <!-- Guest Navigation (Not Logged In) -->
+            <a href="index.php" style="text-decoration: none; color: #475569; font-weight: 600; font-size: 14px;">Home 🏡</a>
+            <a href="login.php" style="background: #f1f5f9; color: #0f172a; text-decoration: none; padding: 8px 18px; border-radius: 20px; font-size: 14px; font-weight: 700;">
+                Log In
+            </a>
+            <a href="signup.php" style="background: #10b981; color: white; text-decoration: none; padding: 8px 18px; border-radius: 20px; font-size: 14px; font-weight: 700;">
+                Sign Up
+            </a>
+        <?php endif; ?>
+    </nav>
 </header>
