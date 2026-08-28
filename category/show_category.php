@@ -1,54 +1,51 @@
 <?php
-if (session_status() === PHP_SESSION_NONE) { session_start(); }
-include("DBconnect.php");
+require_once("../check_login.php");
+require_once("../DBconnect.php");
 
-$result = mysqli_query($conn, "SELECT * FROM category ORDER BY Category_ID DESC");
+$base_path = "../";
+$page_title = "Manage Categories";
+include("../header.php");
+
+$sql = "SELECT * FROM Category";
+$result = mysqli_query($conn, $sql);
 ?>
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Category Management - Plant Hub</title>
-    <style>
-        body { font-family: 'Segoe UI', sans-serif; background: #f8fafc; padding: 20px; }
-        .container { max-width: 800px; margin: 0 auto; background: white; padding: 25px; border-radius: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.05); }
-        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
-        .btn { background: #10b981; color: white; padding: 8px 14px; text-decoration: none; border-radius: 6px; font-weight: bold; font-size: 14px; }
-        .btn-edit { background: #0284c7; } .btn-del { background: #e11d48; }
-        table { width: 100%; border-collapse: collapse; }
-        th, td { padding: 12px; border-bottom: 1px solid #e2e8f0; text-align: left; }
-        th { background: #f1f5f9; }
-    </style>
-</head>
-<body>
-<div class="container">
-    <div class="header">
-        <h2>📁 Plant Categories</h2>
-        <div>
-            <a href="add_category.php" class="btn">➕ Add Category</a>
-            <a href="employee_dashboard.php" class="btn" style="background:#64748b;">Dashboard</a>
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h2 class="fw-bold text-success m-0">Plant Categories</h2>
+        <p class="text-muted mb-0">Manage product classifications</p>
+    </div>
+    <div>
+        <a href="../home.php" class="btn btn-outline-secondary me-2"><i class="bi bi-arrow-left"></i> Dashboard</a>
+        <a href="add_category.php" class="btn btn-success"><i class="bi bi-plus-circle me-1"></i> Add Category</a>
+    </div>
+</div>
+
+<div class="card border-0 shadow-sm">
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead class="table-success">
+                    <tr>
+                        <th>Category ID</th>
+                        <th>Category Name</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php if ($result && mysqli_num_rows($result) > 0) { ?>
+                        <?php while ($row = mysqli_fetch_assoc($result)) { ?>
+                            <tr>
+                                <td><strong>#<?php echo $row['Category_ID']; ?></strong></td>
+                                <td><?php echo $row['Category_name']; ?></td>
+                            </tr>
+                        <?php } ?>
+                    <?php } else { ?>
+                        <tr><td colspan="2" class="text-center py-4 text-muted">No categories recorded yet.</td></tr>
+                    <?php } ?>
+                </tbody>
+            </table>
         </div>
     </div>
-    <table>
-        <thead>
-            <tr><th>ID</th><th>Category Name</th><th>Actions</th></tr>
-        </thead>
-        <tbody>
-            <?php if ($result && mysqli_num_rows($result) > 0): ?>
-                <?php while ($row = mysqli_fetch_assoc($result)): ?>
-                <tr>
-                    <td>#<?php echo $row['Category_ID'] ?? $row['category_id']; ?></td>
-                    <td><strong><?php echo htmlspecialchars($row['Category_name'] ?? $row['category_name']); ?></strong></td>
-                    <td>
-                        <a href="modify_category.php?id=<?php echo $row['Category_ID'] ?? $row['category_id']; ?>" class="btn btn-edit">Edit</a>
-                        <a href="delete_category.php?id=<?php echo $row['Category_ID'] ?? $row['category_id']; ?>" class="btn btn-del" onclick="return confirm('Delete category?')">Delete</a>
-                    </td>
-                </tr>
-                <?php endwhile; ?>
-            <?php else: ?>
-                <tr><td colspan="3" style="text-align:center; color:#64748b;">No categories created yet.</td></tr>
-            <?php endif; ?>
-        </tbody>
-    </table>
 </div>
-</body>
-</html>
+
+<?php include("../footer.php"); ?>
