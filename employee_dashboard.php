@@ -21,10 +21,12 @@ $emp_username = $_SESSION['username'] ?? $_SESSION['Employee_name'] ?? ('emp' . 
         body { font-family: 'Segoe UI', sans-serif; background: #f0fdf4; margin: 0; padding: 0; color: #1e293b; }
         .navbar { background: white; padding: 15px 40px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #e2e8f0; }
         .navbar .logo { font-size: 22px; font-weight: bold; color: #15803d; text-decoration: none; }
-        .nav-links a { color: #334155; text-decoration: none; font-weight: 600; margin-left: 20px; font-size: 14px; }
-        .nav-links .btn-logout { background: #fee2e2; color: #ef4444; padding: 6px 16px; border-radius: 20px; }
-        .container { max-width: 1100px; margin: 30px auto; padding: 0 20px; }
+        .nav-links { display: flex; align-items: center; gap: 20px; }
+        .nav-links a { color: #334155; text-decoration: none; font-weight: 600; font-size: 14px; }
+        .nav-links .btn-logout { background: #fee2e2; color: #ef4444; padding: 6px 16px; border-radius: 20px; transition: background 0.2s; }
+        .nav-links .btn-logout:hover { background: #fca5a5; }
         
+        .container { max-width: 1100px; margin: 30px auto; padding: 0 20px; }
         .hero-banner { background: #064e3b; color: white; padding: 35px; border-radius: 16px; margin-bottom: 25px; }
         .hero-banner h1 { margin: 0 0 8px; font-size: 26px; }
         .hero-banner p { margin: 0; opacity: 0.85; font-size: 14px; }
@@ -46,13 +48,11 @@ $emp_username = $_SESSION['username'] ?? $_SESSION['Employee_name'] ?? ('emp' . 
 </head>
 <body>
 
+<!-- Clean Header Bar -->
 <div class="navbar">
     <a href="employee_dashboard.php" class="logo">🌱 Plant Hub</a>
     <div class="nav-links">
-        <a href="show_plant.php">Home 🏠</a>
-        <a href="show_plant.php">Manage Plants 🌿</a>
-        <a href="show_category.php">Categories 📁</a>
-        <a href="audit_log.php">Audit Trail 📋</a>
+        <a href="employee_dashboard.php">Home 🏠</a>
         <a href="logout.php" class="btn-logout">Logout</a>
     </div>
 </div>
@@ -63,21 +63,22 @@ $emp_username = $_SESSION['username'] ?? $_SESSION['Employee_name'] ?? ('emp' . 
         <p>Welcome back, <strong><?php echo htmlspecialchars($emp_username); ?></strong>. Here is your operational overview for today.</p>
     </div>
 
+    <!-- Quick Management Action Cards -->
     <div class="section-title">⚡ Quick Management Actions</div>
     <div class="quick-actions">
-        <a href="add_plant.php" class="action-card">
+        <a href="manage_plants.php" class="action-card">
             <div class="icon">➕</div>
             <h3>Add New Plant</h3>
             <p>Insert new plant inventory & stock</p>
         </a>
         
-        <a href="show_plant.php" class="action-card">
+        <a href="manage_plants.php" class="action-card">
             <div class="icon">🌿</div>
             <h3>Manage Plants</h3>
             <p>View, edit, or remove plant stock</p>
         </a>
 
-        <a href="add_category.php" class="action-card">
+        <a href="manage_plants.php" class="action-card">
             <div class="icon">📁</div>
             <h3>Plant Categories</h3>
             <p>Add and manage plant categories</p>
@@ -90,6 +91,7 @@ $emp_username = $_SESSION['username'] ?? $_SESSION['Employee_name'] ?? ('emp' . 
         </a>
     </div>
 
+    <!-- System Overview Counters -->
     <div class="section-title">📈 System Overview</div>
     <div class="stats-grid">
         <div class="stat-card">
