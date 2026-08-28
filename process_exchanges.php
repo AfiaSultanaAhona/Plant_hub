@@ -9,7 +9,16 @@ $msg = "";
 // Handle inspection verification
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['verify_exchange'])) {
     $oid = (int)$_POST['order_id'];
+    $verify_employee_id = $_SESSION['employee_id'] ?? null;
+
     @mysqli_query($conn, "UPDATE orders SET payment_method = 'Exchange Completed' WHERE id = '$oid' OR Order_ID = '$oid'");
+
+    // Update exchange table with Employee_ID if applicable
+    if ($verify_employee_id) {
+        @mysqli_query($conn, "UPDATE exchange SET Employee_ID = '$verify_employee_id' WHERE exchange_id = '$oid' OR Received_plant_ID = '$oid'");
+        logEmployeeAction($conn, $verify_employee_id, 'EXCHANGE', "Verified and finalized plant exchange for Order #$oid", $oid);
+    }
+
     $msg = "✅ Return verified and plant exchange finalized for Order #$oid!";
 }
 
