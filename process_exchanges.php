@@ -4,111 +4,86 @@ if (session_status() === PHP_SESSION_NONE) {
 }
 include("DBconnect.php");
 
+$customer_id = $_SESSION['customer_id'] ?? 1; // Fallback for testing
 $msg = "";
 
-// Handle inspection verification
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['verify_exchange'])) {
-    $oid = (int)$_POST['order_id'];
-    $verify_employee_id = $_SESSION['employee_id'] ?? null;
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_exchange'])) {
+    $offered_plant_id = (int)$_POST['offered_plant_id'];
+    $received_plant_id = (int)$_POST['received_plant_id'];
 
-    @mysqli_query($conn, "UPDATE orders SET payment_method = 'Exchange Completed' WHERE id = '$oid' OR Order_ID = '$oid'");
+    // Get prices
+    $p1_res = mysqli_query($conn, "SELECT Unit_price FROM plant WHERE Plant_ID = '$offered_plant_id'");
+    $p2_res = mysqli_query($conn, "SELECT Unit_price FROM plant WHERE Plant_ID = '$received_plant_id'");
+    
+    $p1 = mysqli_fetch_assoc($p1_res);
+    $p2 = mysqli_fetch_assoc($p2_res);
 
-    // Update exchange table with Employee_ID if applicable
-    if ($verify_employee_id) {
-        @mysqli_query($conn, "UPDATE exchange SET Employee_ID = '$verify_employee_id' WHERE exchange_id = '$oid' OR Received_plant_ID = '$oid'");
-        logEmployeeAction($conn, $verify_employee_id, 'EXCHANGE', "Verified and finalized plant exchange for Order #$oid", $oid);
+    $old_price = (float)($p1['Unit_price'] ?? 0);
+    $new_price = (float)($p2['Unit_price'] ?? 0);
+
+    // Calculate value difference
+    $exchange_value = $new_price - $old_price;
+
+    if ($exchange_value < 0) {
+        // Refund difference to Wallet
+        $refund_amount = abs($exchange_value);
+        $payment_method = "Store Wallet Credit";
+        $payment_status = "Refunded to Wallet";
+
+        mysqli_query($conn, "UPDATE customer SET wallet_balance = wallet_balance + $refund_amount WHERE Customer_ID = '$customer_id'");
+        $msg = "✅ Exchange submitted! ৳" . number_format($refund_amount, 2) . " refunded to your store wallet.";
+    } else {
+        $payment_method = "Cash on Delivery";
+        $payment_status = "Pending Balance: ৳" . number_format($exchange_value, 2);
+        $msg = "✅ Exchange submitted! Additional balance due on delivery: ৳" . number_format($exchange_value, 2);
     }
 
-    $msg = "✅ Return verified and plant exchange finalized for Order #$oid!";
+    $today = date('Y-m-d');
+    $sql = "INSERT INTO exchange (Exchange_date, Exchange_value, Received_plant_ID, Customer_ID, Offered_plant_ID, status, payment_method, payment_status)
+            VALUES ('$today', '$exchange_value', '$received_plant_id', '$customer_id', '$offered_plant_id', 'Pending', '$payment_method', '$payment_status')";
+    
+    mysqli_query($conn, $sql);
 }
 
-$orders_res = @mysqli_query($conn, "SELECT * FROM orders ORDER BY 1 DESC");
+$plants = mysqli_query($conn, "SELECT * FROM plant");
 ?>
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-    <meta charset="UTF-8">
-    <title>Process Exchanges - Plant Hub</title>
+    <title>Exchange Plant - Plant Hub</title>
     <style>
-        body { background-color: #ebf5f0; margin: 0; font-family: 'Segoe UI', sans-serif; }
-        .container { max-width: 1050px; margin: 25px auto; padding: 0 20px; }
-        .card { background: white; padding: 25px; border-radius: 14px; box-shadow: 0 4px 15px rgba(0,0,0,0.03); }
-        .card h2 { margin-top: 0; color: #064e3b; font-size: 22px; font-weight: 800; border-bottom: 2px solid #ecfdf5; padding-bottom: 12px; }
-        .alert-box { padding: 12px 18px; border-radius: 8px; font-weight: 600; margin-bottom: 18px; background-color: #d1fae5; border: 1px solid #a7f3d0; color: #065f46; text-align: center; }
-        table { width: 100%; border-collapse: collapse; margin-top: 15px; }
-        th { text-align: left; padding: 12px; color: #4b5563; font-size: 14px; border-bottom: 2px solid #e5e7eb; }
-        td { padding: 14px 12px; font-size: 14px; border-bottom: 1px solid #f3f4f6; vertical-align: middle; }
-        .badge-pending { background: #fef3c7; color: #d97706; padding: 4px 10px; border-radius: 12px; font-size: 12px; font-weight: 700; }
-        .badge-complete { background: #d1fae5; color: #059669; padding: 4px 10px; border-radius: 12px; font-size: 12px; font-weight: 700; }
-        .btn-action { background: #f59e0b; color: white; border: none; padding: 8px 14px; border-radius: 6px; font-weight: 700; cursor: pointer; }
+        body { font-family: 'Segoe UI', sans-serif; background: #eef7f2; padding: 30px; }
+        .form-card { background: white; max-width: 500px; margin: auto; padding: 25px; border-radius: 12px; }
+        select, button { width: 100%; padding: 10px; margin-top: 10px; border-radius: 6px; }
+        button { background: #10b981; color: white; border: none; font-weight: bold; cursor: pointer; }
     </style>
 </head>
 <body>
+<div class="form-card">
+    <h2>Request Plant Exchange 🔄</h2>
+    <?php if ($msg) echo "<p style='color:#065f46;'>$msg</p>"; ?>
+    
+    <form method="POST">
+        <label>Current Plant You Own:</label>
+        <select name="offered_plant_id" required>
+            <?php 
+            mysqli_data_seek($plants, 0);
+            while($row = mysqli_fetch_assoc($plants)): ?>
+                <option value="<?php echo $row['Plant_ID']; ?>"><?php echo $row['Plant_name']; ?> (৳<?php echo $row['Unit_price']; ?>)</option>
+            <?php endwhile; ?>
+        </select>
 
-<?php include("header.php"); ?>
+        <label style="margin-top:15px; display:block;">Target Plant to Receive:</label>
+        <select name="received_plant_id" required>
+            <?php 
+            mysqli_data_seek($plants, 0);
+            while($row = mysqli_fetch_assoc($plants)): ?>
+                <option value="<?php echo $row['Plant_ID']; ?>"><?php echo $row['Plant_name']; ?> (৳<?php echo $row['Unit_price']; ?>)</option>
+            <?php endwhile; ?>
+        </select>
 
-<div class="container">
-    <div class="card">
-        <h2>Customer Plant Exchange Verifications 🔄</h2>
-
-        <?php if (!empty($msg)): ?>
-            <div class="alert-box"><?php echo $msg; ?></div>
-        <?php endif; ?>
-
-        <table>
-            <thead>
-                <tr>
-                    <th>Order ID</th>
-                    <th>Current Active Item</th>
-                    <th>Current Value</th>
-                    <th>Inspection Status</th>
-                    <th>Action</th>
-                </tr>
-            </thead>
-            <tbody>
-                <?php 
-                if ($orders_res && mysqli_num_rows($orders_res) > 0):
-                    while ($o_row = mysqli_fetch_assoc($orders_res)):
-                        $oid = $o_row['id'] ?? $o_row['Order_ID'] ?? '1';
-                        $pname = $o_row['plant_name'] ?? 'Plant Item';
-                        $amt = (float)($o_row['Amount'] ?? 0);
-                        $pmethod = $o_row['payment_method'] ?? '';
-                        $is_done = ($pmethod === 'Exchange Completed');
-                ?>
-                    <tr>
-                        <td style="font-weight:700;">#<?php echo $oid; ?></td>
-                        <td style="font-weight:700; color:#1f2937;"><?php echo htmlspecialchars($pname); ?></td>
-                        <td style="color:#10b981; font-weight:800;">$<?php echo number_format($amt, 2); ?></td>
-                        <td>
-                            <?php if ($is_done): ?>
-                                <span class="badge-complete">Verified & Complete</span>
-                            <?php else: ?>
-                                <span class="badge-pending">Awaiting Return Condition</span>
-                            <?php endif; ?>
-                        </td>
-                        <td>
-                            <?php if (!$is_done): ?>
-                                <form method="POST">
-                                    <input type="hidden" name="order_id" value="<?php echo $oid; ?>">
-                                    <button type="submit" name="verify_exchange" class="btn-action">Verify Condition ✅</button>
-                                </form>
-                            <?php else: ?>
-                                <span style="color:#059669; font-weight:700; font-size:13px;">Processed ✓</span>
-                            <?php endif; ?>
-                        </td>
-                    </tr>
-                <?php 
-                    endwhile;
-                else: 
-                ?>
-                    <tr><td colspan="5" style="text-align:center; padding:20px;">No exchange orders found.</td></tr>
-                <?php endif; ?>
-            </tbody>
-        </table>
-    </div>
+        <button type="submit" name="submit_exchange">Submit Request</button>
+    </form>
 </div>
-
-<?php if (file_exists("footer.php")) include("footer.php"); ?>
-
 </body>
 </html>
