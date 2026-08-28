@@ -4,137 +4,81 @@ if (session_status() === PHP_SESSION_NONE) {
 }
 include_once("DBconnect.php");
 
-// 1. Check Session Points First, Default to DB if available
-$header_user_points = $_SESSION['user_points'] ?? 0;
+// Turn off fatal SQL exceptions for safety
+mysqli_report(MYSQLI_REPORT_OFF);
 
-// 2. Identify Logged-In User
-$user_id = $_SESSION['Customer_ID'] 
-        ?? $_SESSION['user_id'] 
-        ?? $_SESSION['customer_id'] 
-        ?? $_SESSION['cid'] 
-        ?? $_SESSION['id'] 
-        ?? null;
+// Default points to 0
+$user_points = 0;
+$tier_label = "Bronze Tier";
 
-// 3. Sync from DB if available and update session
-if ($user_id) {
-    $clean_id = mysqli_real_escape_string($conn, $user_id);
-    $pts_res = mysqli_query($conn, "SELECT points FROM customer WHERE Customer_ID = '$clean_id'");
-    if ($pts_res && $p_row = mysqli_fetch_assoc($pts_res)) {
-        $header_user_points = (int)($p_row['points'] ?? 0);
-        $_SESSION['user_points'] = $header_user_points; // Keep session synced
+// Determine logged-in user and fetch clean points
+if (isset($_SESSION['customer_id']) || isset($_SESSION['user_id']) || isset($_SESSION['id'])) {
+    $raw_id = $_SESSION['customer_id'] ?? $_SESSION['user_id'] ?? $_SESSION['id'];
+    $clean_id = mysqli_real_escape_string($conn, (string)$raw_id);
+    
+    // Extract numbers only if prefixed (e.g., 'C101' -> '101')
+    $numeric_id = preg_replace('/[^0-9]/', '', $clean_id);
+
+    // Query points safely from database
+    $query = "SELECT points FROM customer WHERE Customer_ID = '$clean_id' OR Customer_ID = '$numeric_id' LIMIT 1";
+    $result = mysqli_query($conn, $query);
+
+    if ($result && $row = mysqli_fetch_assoc($result)) {
+        // Explicitly parse points as an integer
+        $user_points = isset($row['points']) ? (int)$row['points'] : 0;
     }
 }
 
-// 4. Cart Items Count
-$cart_count = 0;
-if (isset($_SESSION['cart']) && is_array($_SESSION['cart'])) {
-    foreach ($_SESSION['cart'] as $item) {
-        $cart_count += (int)($item['quantity'] ?? 1);
-    }
+// Calculate Tier based on points
+if ($user_points >= 1000) {
+    $tier_label = "Gold Tier";
+} elseif ($user_points >= 500) {
+    $tier_label = "Silver Tier";
+} else {
+    $tier_label = "Bronze Tier";
 }
+
+$cart_count = isset($_SESSION['cart']) ? array_sum(array_column($_SESSION['cart'], 'quantity')) : 0;
 ?>
 
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <style>
-        .navbar {
-            background-color: #ffffff;
-            padding: 15px 40px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
-            font-family: 'Segoe UI', sans-serif;
-        }
-        .navbar-brand {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            font-size: 22px;
-            font-weight: 800;
-            color: #15803d;
-            text-decoration: none;
-        }
-        .navbar-nav {
-            display: flex;
-            align-items: center;
-            gap: 20px;
-            list-style: none;
-            margin: 0;
-            padding: 0;
-        }
-        .nav-link {
-            text-decoration: none;
-            color: #334155;
-            font-weight: 600;
-            font-size: 14px;
-            display: flex;
-            align-items: center;
-            gap: 5px;
-        }
-        .nav-link:hover { color: #15803d; }
-        .points-badge {
-            background-color: #dcfce7;
-            color: #15803d;
-            padding: 6px 14px;
-            border-radius: 20px;
-            font-weight: 700;
-            font-size: 14px;
-            display: flex;
-            align-items: center;
-            gap: 6px;
-            border: 1px solid #bbf7d0;
-        }
-        .user-badge {
-            background-color: #dbeafe;
-            color: #1e40af;
-            padding: 6px 14px;
-            border-radius: 20px;
-            font-weight: 700;
-            font-size: 14px;
-            display: flex;
-            align-items: center;
-            gap: 6px;
-        }
-        .btn-logout {
-            background-color: #ffe4e6;
-            color: #e11d48;
-            padding: 6px 16px;
-            border-radius: 20px;
-            text-decoration: none;
-            font-weight: 700;
-            font-size: 14px;
-        }
-    </style>
-</head>
-<body>
-
-<header class="navbar">
-    <a href="shop.php" class="navbar-brand">🌿 Plant Hub</a>
-
-    <ul class="navbar-nav">
-        <li><a href="shop.php" class="nav-link">Home 🏠</a></li>
-        <li><a href="cart.php" class="nav-link">My Cart 🛒 (<?php echo $cart_count; ?>)</a></li>
-        <li><a href="my_orders.php" class="nav-link">My Orders 📦</a></li>
+<!-- Header HTML Component -->
+<header style="background: #ffffff; border-bottom: 1px solid #e5e7eb; padding: 12px 24px;">
+    <div style="max-width: 1200px; margin: 0 auto; display: flex; justify-content: space-between; align-items: center;">
         
-        <!-- Live Points Badge -->
-        <li>
-            <div class="points-badge">
-                🌿 Points: <?php echo number_format($header_user_points); ?>
+        <!-- Brand Logo -->
+        <a href="shop.php" style="display: flex; align-items: center; gap: 8px; text-decoration: none;">
+            <span style="font-size: 22px;">🌿</span>
+            <span style="font-size: 22px; font-weight: 800; color: #065f46;">Plant Hub</span>
+        </a>
+
+        <!-- Navigation Links -->
+        <nav style="display: flex; align-items: center; gap: 20px;">
+            <a href="shop.php" style="color: #374151; text-decoration: none; font-weight: 600;">Home 🏠</a>
+            <a href="cart.php" style="color: #374151; text-decoration: none; font-weight: 600;">
+                My Cart 🛒 (<?php echo $cart_count; ?>)
+            </a>
+            <a href="orders.php" style="color: #374151; text-decoration: none; font-weight: 600;">My Orders 📦</a>
+
+            <!-- Customer Loyalty Points Badge -->
+            <div style="background-color: #d1fae5; color: #065f46; border: 1px solid #6ee7b7; padding: 6px 14px; border-radius: 20px; font-weight: 700; font-size: 14px; display: flex; align-items: center; gap: 6px;">
+                <span>🌿</span>
+                <span>Points: <?php echo number_format($user_points); ?></span>
             </div>
-        </li>
 
-        <?php if ($user_id || isset($_SESSION['user_points'])): ?>
-            <li><div class="user-badge">👤 Customer</div></li>
-            <li><a href="logout.php" class="btn-logout">Logout</a></li>
-        <?php else: ?>
-            <li><a href="login.php" class="nav-link">Login</a></li>
-            <li><a href="signup.php" class="nav-link">Sign Up</a></li>
-        <?php endif; ?>
-    </ul>
+            <!-- Profile & Action Buttons -->
+            <?php if (isset($_SESSION['customer_id']) || isset($_SESSION['user_id'])): ?>
+                <span style="background: #e0e7ff; color: #3730a3; padding: 6px 12px; border-radius: 8px; font-size: 14px; font-weight: 600;">
+                    👤 Customer
+                </span>
+                <a href="logout.php" style="background: #ffe4e6; color: #e11d48; padding: 6px 14px; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 14px;">
+                    Logout
+                </a>
+            <?php else: ?>
+                <a href="login.php" style="background: #10b981; color: white; padding: 6px 16px; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 14px;">
+                    Login
+                </a>
+            <?php endif; ?>
+        </nav>
+
+    </div>
 </header>
-
-</body>
-</html>
