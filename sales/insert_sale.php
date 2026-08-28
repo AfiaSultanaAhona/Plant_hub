@@ -37,6 +37,11 @@ if (isset($_POST['txn_id']) && isset($_POST['plant_id'])) {
             logEmployeeAction($conn, $employee_id, 'SALE', "Recorded sale Txn #$txn_id: $qty units of Plant #$plant_id for ৳$total_amount to Customer #$customer_id", $txn_id);
         }
 
+        // Award loyalty points to the customer for this sale
+        if ($customer_id) {
+            processOrderLoyaltyPoints($conn, $customer_id, $txn_id, $total_amount);
+        }
+
         header("Location: show_sales.php");
         exit();
     } else {

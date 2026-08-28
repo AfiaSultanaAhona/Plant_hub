@@ -34,41 +34,34 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST['action']) && $_POST['
         $clean_id = mysqli_real_escape_string($conn, (string)$raw_id);
         $numeric_id = (int)preg_replace('/[^0-9]/', '', $clean_id);
 
-        // 1. Insert Order Record
-        $order_sql = "INSERT INTO orders (customer_id, total_amount, order_date) VALUES ('$numeric_id', '$total_amount', NOW())";
-        $order_query = mysqli_query($conn, $order_sql);
+        // 1. Insert Order Records for each cart item & Deduct Stock
+        $first_order_id = null;
+        foreach ($_SESSION['cart'] as $plant_id => $item) {
+            $qty = (int)$item['quantity'];
+            $price = (float)$item['price'];
+            $item_total = $price * $qty;
 
-        if ($order_query) {
-            $order_id = mysqli_insert_id($conn);
+            $order_sql = "INSERT INTO orders (Customer_id, Plant_id, Amount, Order_date) 
+                          VALUES ('$numeric_id', '$plant_id', '$item_total', NOW())";
+            mysqli_query($conn, $order_sql);
 
-            // 2. Insert Order Items & Deduct Stock
-            foreach ($_SESSION['cart'] as $plant_id => $item) {
-                $qty = (int)$item['quantity'];
-                $price = (float)$item['price'];
-
-                // Record item in order details
-                mysqli_query($conn, "INSERT INTO order_items (order_id, plant_id, quantity, price) VALUES ('$order_id', '$plant_id', '$qty', '$price')");
-
-                // Update stock quantity in plant table
-                mysqli_query($conn, "UPDATE plant SET Stock_quantity = GREATEST(0, Stock_quantity - $qty) WHERE Plant_ID = '$plant_id'");
+            if ($first_order_id === null) {
+                $first_order_id = mysqli_insert_id($conn);
             }
 
-            // 3. Calculate Earned Points (10 points per ৳500 spent)
-            $earned_points = floor($total_amount / 500) * 10;
+            // Update stock quantity in plant table
+            mysqli_query($conn, "UPDATE plant SET Stock_quantity = GREATEST(0, Stock_quantity - $qty) WHERE Plant_ID = '$plant_id'");
+        }
 
-            if ($earned_points > 0) {
-                // Update customer points using both possible ID patterns
-                $update_points_sql = "UPDATE customer 
-                                      SET points = COALESCE(points, 0) + $earned_points 
-                                      WHERE Customer_ID = '$clean_id' OR Customer_ID = '$numeric_id'";
-                mysqli_query($conn, $update_points_sql);
-            }
+        if ($first_order_id) {
+            // 2. Award Loyalty Points (using central helper function)
+            processOrderLoyaltyPoints($conn, $numeric_id, $first_order_id, $total_amount);
 
             // Clear Cart after successful checkout
             $_SESSION['cart'] = [];
             $message_type = "success";
         } else {
-            $message = "Failed to place order: " . mysqli_error($conn);
+            $message = "Failed to place order.";
             $message_type = "error";
         }
     }

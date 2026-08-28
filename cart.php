@@ -37,7 +37,7 @@ foreach ($_SESSION['cart'] as $item) {
     $total_amount += (float)$item['price'] * (int)$item['quantity'];
 }
 
-// Handle Purchase Order Confirmation & Points Update
+// Handle Purchase Order Confirmation, Points Earning & Redemption
 if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST['action']) && $_POST['action'] === 'checkout') {
     $raw_id = $_SESSION['customer_id'] ?? $_SESSION['user_id'] ?? $_SESSION['id'] ?? null;
 
@@ -51,42 +51,67 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST['action']) && $_POST['
         $clean_id = mysqli_real_escape_string($conn, (string)$raw_id);
         $numeric_id = (int)preg_replace('/[^0-9]/', '', $clean_id);
 
-        // Calculate Earned Loyalty Points (10 points per ৳500 spent)
-        $earned_points = (int)(floor($total_amount / 500) * 10);
-
-        // 1. Update Customer Points in DB (Handles String IDs, Integers, and LIKE matches)
-        $update_sql = "UPDATE customer 
-                       SET points = COALESCE(points, 0) + $earned_points 
-                       WHERE Customer_ID = '$clean_id' 
-                          OR Customer_ID = '$numeric_id' 
-                          OR Customer_ID LIKE '%$numeric_id%'";
-        mysqli_query($conn, $update_sql);
-
-        // Fallback update if primary key is named id / customer_id (lowercase)
-        if (mysqli_affected_rows($conn) <= 0) {
-            mysqli_query($conn, "UPDATE customer SET points = COALESCE(points, 0) + $earned_points WHERE id = '$numeric_id' OR customer_id = '$numeric_id'");
+        // Fetch current points balance for redemption validation
+        $current_points = 0;
+        $bal_res = mysqli_query($conn, "SELECT points FROM customer WHERE Customer_ID = '$numeric_id' LIMIT 1");
+        if ($bal_res && $bal_row = mysqli_fetch_assoc($bal_res)) {
+            $current_points = (int)($bal_row['points'] ?? 0);
         }
 
-        // 2. Query updated points directly from DB to sync display & session
-        $fetch_sql = "SELECT points FROM customer 
-                      WHERE Customer_ID = '$clean_id' 
-                         OR Customer_ID = '$numeric_id' 
-                         OR Customer_ID LIKE '%$numeric_id%' LIMIT 1";
-        $fetch_res = mysqli_query($conn, $fetch_sql);
-        
-        if ($fetch_res && $row = mysqli_fetch_assoc($fetch_res)) {
-            $user_points = (int)$row['points'];
+        // Get points to redeem from form (capped at balance AND order total)
+        $redeem_points = isset($_POST['redeem_points']) ? (int)$_POST['redeem_points'] : 0;
+        $redeem_points = max(0, min($redeem_points, $current_points, (int)$total_amount));
+
+        // Calculate final paid amount after points discount (1 point = ৳1)
+        $discount = $redeem_points;
+        $paid_amount = $total_amount - $discount;
+
+        // 1. Insert order records for each cart item & deduct stock
+        $first_order_id = null;
+        foreach ($_SESSION['cart'] as $plant_id => $item) {
+            $qty = (int)$item['quantity'];
+            $price = (float)$item['price'];
+            $item_total = $price * $qty;
+
+            $pts_on_row = ($first_order_id === null) ? $redeem_points : 0;
+            $order_sql = "INSERT INTO orders (Customer_id, Plant_id, Amount, Order_date, points_redeemed) 
+                          VALUES ('$numeric_id', '$plant_id', '$item_total', NOW(), '$pts_on_row')";
+            mysqli_query($conn, $order_sql);
+
+            if ($first_order_id === null) {
+                $first_order_id = mysqli_insert_id($conn);
+            }
+
+            // Deduct stock
+            mysqli_query($conn, "UPDATE plant SET Stock_quantity = GREATEST(0, Stock_quantity - $qty) WHERE Plant_ID = '$plant_id'");
+        }
+
+        // 2. Award loyalty points (only on the PAID amount, not the redeemed portion)
+        $points_earned = processOrderLoyaltyPoints($conn, $numeric_id, $first_order_id, $paid_amount);
+
+        // 3. Redeem points — deducts from customer balance & logs to loyalty_logs
+        $actual_redeemed = 0;
+        if ($redeem_points > 0) {
+            $actual_redeemed = redeemLoyaltyPoints($conn, $numeric_id, $first_order_id, $redeem_points);
+        }
+
+        // 4. Refresh session points from DB
+        $pts_res = mysqli_query($conn, "SELECT points FROM customer WHERE Customer_ID = '$numeric_id' LIMIT 1");
+        if ($pts_res && $prow = mysqli_fetch_assoc($pts_res)) {
+            $user_points = (int)$prow['points'];
             $_SESSION['points'] = $user_points;
-        } else {
-            $_SESSION['points'] = (isset($_SESSION['points']) ? (int)$_SESSION['points'] : 0) + $earned_points;
-            $user_points = $_SESSION['points'];
         }
 
-        // 3. Clear cart & set success alert
+        // 5. Clear cart
         $_SESSION['cart'] = [];
-        $message = "🎉 Order confirmed! You earned <strong>+$earned_points points</strong>!";
-        $message_type = "success";
         $total_amount = 0;
+
+        // 6. Build success message
+        $msg_parts = [];
+        if ($points_earned > 0) $msg_parts[] = "Earned <strong>+$points_earned points</strong>";
+        if ($actual_redeemed > 0) $msg_parts[] = "Redeemed <strong>$actual_redeemed points (৳$actual_redeemed discount)</strong>";
+        $message = "🎉 Order confirmed! " . (!empty($msg_parts) ? implode(' &nbsp;|&nbsp; ', $msg_parts) : "Thank you for your purchase!");
+        $message_type = "success";
     }
 }
 
@@ -148,6 +173,16 @@ if (!isset($user_points)) {
         .alert-success { background-color: #d1fae5; color: #065f46; border: 1px solid #a7f3d0; }
         .alert-error { background-color: #ffe4e6; color: #e11d48; border: 1px solid #fecdd3; }
         .empty-cart { text-align: center; padding: 40px 0; color: #6b7280; }
+
+        .redeem-section { background: #f0fdf4; border: 2px solid #bbf7d0; border-radius: 10px; padding: 16px 20px; margin: 16px 0; }
+        .redeem-header { display: flex; align-items: center; }
+        .redeem-toggle { display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 14px; font-weight: 600; color: #065f46; }
+        .redeem-toggle input[type="checkbox"] { width: 18px; height: 18px; accent-color: #10b981; cursor: pointer; }
+        .redeem-input-row { display: flex; align-items: center; gap: 12px; margin-top: 12px; flex-wrap: wrap; }
+        .redeem-input-row label { font-size: 13px; font-weight: 700; color: #374151; white-space: nowrap; }
+        .redeem-input-row input[type="number"] { width: 120px; padding: 8px 12px; border: 2px solid #a7f3d0; border-radius: 8px; font-size: 14px; font-weight: 700; }
+        .redeem-input-row input[type="number"]:focus { outline: none; border-color: #10b981; }
+        .redeem-hint { font-size: 12px; color: #6b7280; }
     </style>
 </head>
 <body>
@@ -217,19 +252,44 @@ if (!isset($user_points)) {
             </table>
 
             <div class="checkout-box">
-                <label style="font-weight: bold; color: #334155;">Select Payment Method:</label>
-                <select class="payment-select">
-                    <option>Pay on Delivery / Pickup</option>
-                </select>
-
-                <div class="final-row">
-                    <div style="font-size: 22px; font-weight: bold; color: #1e293b;">
-                        Final Total: <span class="final-price">৳<?php echo number_format($total_amount, 2); ?></span>
-                    </div>
-                </div>
-
-                <form method="POST" action="cart.php">
+                <form method="POST" action="cart.php" id="checkoutForm">
                     <input type="hidden" name="action" value="checkout">
+
+                    <label style="font-weight: bold; color: #334155;">Select Payment Method:</label>
+                    <select class="payment-select" name="payment_method">
+                        <option>Pay on Delivery / Pickup</option>
+                    </select>
+
+                    <!-- Loyalty Points Redemption Section -->
+                    <?php if ($user_points > 0): ?>
+                    <div class="redeem-section">
+                        <div class="redeem-header">
+                            <label class="redeem-toggle">
+                                <input type="checkbox" id="usePointsToggle" onchange="toggleRedeem()">
+                                <span>⭐ Use Loyalty Points (Available: <strong><?php echo number_format($user_points); ?> PTS</strong> = ৳<?php echo number_format($user_points); ?>)</span>
+                            </label>
+                        </div>
+                        <div class="redeem-input-row" id="redeemInputRow" style="display: none;">
+                            <label>Points to redeem:</label>
+                            <input type="number" name="redeem_points" id="redeemInput" min="0" max="<?php echo min($user_points, (int)$total_amount); ?>" value="0" oninput="updateFinal()">
+                            <span class="redeem-hint">Max: <?php echo min($user_points, (int)$total_amount); ?> points (৳<?php echo min($user_points, (int)$total_amount); ?> off)</span>
+                        </div>
+                    </div>
+                    <?php else: ?>
+                        <input type="hidden" name="redeem_points" value="0">
+                    <?php endif; ?>
+
+                    <div class="final-row">
+                        <div>
+                            <div id="discountLine" style="display:none; font-size: 14px; color: #ef4444; font-weight: 700; margin-bottom: 6px;">
+                                Points Discount: -৳<span id="discountDisplay">0</span>
+                            </div>
+                            <div style="font-size: 22px; font-weight: bold; color: #1e293b;">
+                                Final Total: <span class="final-price" id="finalTotal">৳<?php echo number_format($total_amount, 2); ?></span>
+                            </div>
+                        </div>
+                    </div>
+
                     <button type="submit" class="btn-checkout">Confirm & Complete Purchase Order ↗</button>
                 </form>
             </div>
@@ -245,6 +305,39 @@ if (!isset($user_points)) {
 </div>
 
 <?php if (file_exists("footer.php")) include("footer.php"); ?>
+
+<script>
+var cartTotal = <?php echo json_encode((float)$total_amount); ?>;
+var userPoints = <?php echo json_encode((int)$user_points); ?>;
+
+function toggleRedeem() {
+    var checked = document.getElementById('usePointsToggle');
+    var row = document.getElementById('redeemInputRow');
+    if (!checked || !row) return;
+    row.style.display = checked.checked ? 'flex' : 'none';
+    if (!checked.checked) {
+        document.getElementById('redeemInput').value = 0;
+        updateFinal();
+    }
+}
+
+function updateFinal() {
+    var input = document.getElementById('redeemInput');
+    if (!input) return;
+    var redeem = parseInt(input.value) || 0;
+    var maxPts = Math.min(userPoints, Math.floor(cartTotal));
+    redeem = Math.max(0, Math.min(redeem, maxPts));
+
+    var finalTotal = cartTotal - redeem;
+    document.getElementById('finalTotal').textContent = '৳' + finalTotal.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+
+    var discountLine = document.getElementById('discountLine');
+    if (discountLine) {
+        discountLine.style.display = redeem > 0 ? 'block' : 'none';
+        document.getElementById('discountDisplay').textContent = redeem.toLocaleString();
+    }
+}
+</script>
 
 </body>
 </html>

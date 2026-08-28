@@ -52,12 +52,22 @@ $cart_count = isset($_SESSION['cart']) ? array_sum(array_column($_SESSION['cart'
         </a>
 
         <!-- Navigation Links -->
-        <nav style="display: flex; align-items: center; gap: 20px;">
-            <a href="shop.php" style="color: #374151; text-decoration: none; font-weight: 600;">Home 🏠</a>
-            <a href="cart.php" style="color: #374151; text-decoration: none; font-weight: 600;">
+        <nav style="display: flex; align-items: center; gap: 18px;">
+            <a href="shop.php" style="color: #374151; text-decoration: none; font-weight: 600; font-size: 14px;">Home 🏠</a>
+            <a href="cart.php" style="color: #374151; text-decoration: none; font-weight: 600; font-size: 14px;">
                 My Cart 🛒 (<?php echo $cart_count; ?>)
             </a>
-            <a href="orders.php" style="color: #374151; text-decoration: none; font-weight: 600;">My Orders 📦</a>
+            <a href="my_orders.php" style="color: #374151; text-decoration: none; font-weight: 600; font-size: 14px;">My Orders 📦</a>
+
+            <?php 
+            $role = $_SESSION['role'] ?? '';
+            if ($role === 'employee'): 
+            ?>
+                <!-- Employee-only links -->
+                <a href="employee_dashboard.php" style="color: #374151; text-decoration: none; font-weight: 600; font-size: 14px;">Dashboard 📊</a>
+                <a href="purchase/show_purchase.php" style="color: #374151; text-decoration: none; font-weight: 600; font-size: 14px;">Purchases 📦</a>
+                <a href="audit_log.php" style="color: #374151; text-decoration: none; font-weight: 600; font-size: 14px;">Audit Log 🔍</a>
+            <?php endif; ?>
 
             <!-- Customer Loyalty Points Badge -->
             <div style="background-color: #d1fae5; color: #065f46; border: 1px solid #6ee7b7; padding: 6px 14px; border-radius: 20px; font-weight: 700; font-size: 14px; display: flex; align-items: center; gap: 6px;">
@@ -67,9 +77,9 @@ $cart_count = isset($_SESSION['cart']) ? array_sum(array_column($_SESSION['cart'
 
             <!-- Profile & Action Buttons -->
             <?php if (isset($_SESSION['customer_id']) || isset($_SESSION['user_id'])): ?>
-                <span style="background: #e0e7ff; color: #3730a3; padding: 6px 12px; border-radius: 8px; font-size: 14px; font-weight: 600;">
-                    👤 Customer
-                </span>
+                <a href="my_account.php" style="background: #e0e7ff; color: #3730a3; padding: 6px 12px; border-radius: 8px; font-size: 14px; font-weight: 600; text-decoration: none; display: flex; align-items: center; gap: 4px;">
+                    👤 <?php echo $role === 'employee' ? 'Staff' : 'My Account'; ?>
+                </a>
                 <a href="logout.php" style="background: #ffe4e6; color: #e11d48; padding: 6px 14px; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 14px;">
                     Logout
                 </a>

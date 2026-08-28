@@ -45,31 +45,21 @@ $user_phone = $customer['Phone'] ?? 'N/A';
 $user_address = $customer['Address'] ?? 'N/A';
 $cust_display_id = $customer['Customer_ID'] ?? $raw_numeric_id;
 
-// Fetch order history for points transaction breakdown
-$orders_res = null;
-if ($raw_numeric_id > 0) {
-    $orders_res = @mysqli_query($conn, "SELECT * FROM orders WHERE Customer_ID = '$raw_numeric_id' OR Customer_ID = '$u_id_esc' ORDER BY order_date DESC LIMIT 50");
-}
-if (!$orders_res || mysqli_num_rows($orders_res) == 0) {
-    $orders_res = @mysqli_query($conn, "SELECT * FROM orders ORDER BY order_date DESC LIMIT 50");
-}
-
-// Calculate total earned and redeemed
+// Fetch loyalty transaction history from loyalty_logs table
+$loyalty_log_rows = [];
 $total_earned = 0;
 $total_redeemed = 0;
-$order_rows = [];
 
-if ($orders_res) {
-    while ($o = mysqli_fetch_assoc($orders_res)) {
-        $order_rows[] = $o;
-        $amt = (float)($o['Amount'] ?? $o['amount'] ?? 0);
-        $pay = $o['payment_method'] ?? $o['Payment_Method'] ?? '';
-        $pts_redeemed = (int)($o['points_redeemed'] ?? 0);
-        
-        if (strcasecmp($pay, 'Loyalty Points') === 0) {
-            $total_redeemed += (int)ceil($amt);
-        } else {
-            $total_earned += (int)floor($amt / 500) * 10;
+if ($raw_numeric_id > 0) {
+    $log_res = @mysqli_query($conn, "SELECT * FROM loyalty_logs WHERE user_id = '$raw_numeric_id' ORDER BY created_at DESC LIMIT 50");
+    if ($log_res) {
+        while ($l = mysqli_fetch_assoc($log_res)) {
+            $loyalty_log_rows[] = $l;
+            if ($l['transaction_type'] === 'EARNED') {
+                $total_earned += (int)$l['points'];
+            } else {
+                $total_redeemed += (int)$l['points'];
+            }
         }
     }
 }
@@ -321,49 +311,33 @@ elseif ($user_points < 500) { $next_tier = 'Gold'; $points_to_next = 500 - $user
         <table>
             <thead>
                 <tr>
-                    <th>Order ID</th>
+                    <th>Log ID</th>
                     <th>Date</th>
-                    <th>Amount</th>
-                    <th>Payment Method</th>
+                    <th>Type</th>
+                    <th>Description</th>
                     <th>Points Change</th>
                 </tr>
             </thead>
             <tbody>
-                <?php if (!empty($order_rows)): ?>
-                    <?php foreach ($order_rows as $o):
-                        $oid = $o['id'] ?? $o['Order_ID'] ?? $o['order_id'] ?? '—';
-                        $odate = $o['order_date'] ?? $o['Order_date'] ?? '';
-                        $amt = (float)($o['Amount'] ?? $o['amount'] ?? 0);
-                        $pay = $o['payment_method'] ?? $o['Payment_Method'] ?? 'N/A';
-                        $is_pts = (strcasecmp($pay, 'Loyalty Points') === 0);
-                        
-                        // Determine badge class
-                        $badge_cls = 'pay-other';
-                        if (stripos($pay, 'Delivery') !== false || stripos($pay, 'Pickup') !== false) $badge_cls = 'pay-delivery';
-                        elseif ($is_pts) $badge_cls = 'pay-points';
-                        elseif (stripos($pay, 'Credit') !== false || stripos($pay, 'Card') !== false) $badge_cls = 'pay-card';
-                        
-                        // Points change
-                        if ($is_pts) {
-                            $pts_change = '-' . number_format((int)ceil($amt));
-                            $pts_cls = 'pts-redeemed';
-                        } else {
-                            $earned = (int)floor($amt / 500) * 10;
-                            $pts_change = '+' . $earned;
-                            $pts_cls = 'pts-earned';
-                        }
+                <?php if (!empty($loyalty_log_rows)): ?>
+                    <?php foreach ($loyalty_log_rows as $l):
+                        $is_earned = ($l['transaction_type'] === 'EARNED');
+                        $pts = (int)$l['points'];
+                        $pts_change = $is_earned ? '+' . number_format($pts) : '-' . number_format($pts);
+                        $pts_cls = $is_earned ? 'pts-earned' : 'pts-redeemed';
+                        $badge_cls = $is_earned ? 'pay-delivery' : 'pay-points';
                     ?>
                         <tr>
-                            <td style="font-weight: 700; color: #6b7280;">#<?php echo $oid; ?></td>
-                            <td><?php echo $odate ? date('M d, Y', strtotime($odate)) : '—'; ?></td>
-                            <td style="font-weight: 700; color: #10b981;">৳<?php echo number_format($amt, 2); ?></td>
-                            <td><span class="payment-badge <?php echo $badge_cls; ?>"><?php echo htmlspecialchars($pay); ?></span></td>
+                            <td style="font-weight: 700; color: #6b7280;">#<?php echo $l['log_id']; ?></td>
+                            <td><?php echo date('M d, Y H:i', strtotime($l['created_at'])); ?></td>
+                            <td><span class="payment-badge <?php echo $badge_cls; ?>"><?php echo $l['transaction_type']; ?></span></td>
+                            <td><?php echo htmlspecialchars($l['description'] ?? ''); ?></td>
                             <td><span class="<?php echo $pts_cls; ?>"><?php echo $pts_change; ?> PTS</span></td>
                         </tr>
                     <?php endforeach; ?>
                 <?php else: ?>
                     <tr>
-                        <td colspan="5" class="empty-msg">No order history found. <a href="shop.php" style="color: #10b981; font-weight: 700;">Start Shopping!</a></td>
+                        <td colspan="5" class="empty-msg">No points transactions yet. <a href="shop.php" style="color: #10b981; font-weight: 700;">Start Shopping to earn points!</a></td>
                     </tr>
                 <?php endif; ?>
             </tbody>

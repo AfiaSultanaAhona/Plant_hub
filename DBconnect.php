@@ -32,25 +32,70 @@ if (!$conn) {
 // Ensure purchase_transaction has Employee_ID column
 @mysqli_query($conn, "ALTER TABLE `purchase_transaction` ADD COLUMN `Employee_ID` INT DEFAULT NULL");
 
+// Auto-create loyalty_logs table for points tracking
+@mysqli_query($conn, "CREATE TABLE IF NOT EXISTS `loyalty_logs` (
+    `log_id` INT AUTO_INCREMENT PRIMARY KEY,
+    `user_id` INT NOT NULL,
+    `order_id` INT DEFAULT NULL,
+    `points` INT NOT NULL,
+    `transaction_type` VARCHAR(20) NOT NULL,
+    `description` TEXT,
+    `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    KEY `idx_user` (`user_id`),
+    KEY `idx_type` (`transaction_type`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci");
+
 /**
  * Helper Function: Process & Award Loyalty Points
  * Earns 10 points for every complete ৳500 spent per order.
  */
 function processOrderLoyaltyPoints($conn, $user_id, $order_id, $total_amount) {
+    $uid = (int)$user_id;
     $points_earned = (int)floor($total_amount / 500) * 10;
     
-    if ($points_earned > 0 && $user_id) {
-        // Update user's permanent loyalty points balance in customer table
-        $update_sql = "UPDATE customer SET loyalty_points = loyalty_points + $points_earned WHERE customer_id = '$user_id' OR id = '$user_id'";
-        mysqli_query($conn, $update_sql);
+    if ($points_earned > 0 && $uid > 0) {
+        // Update customer points balance (uses 'points' column consistently)
+        mysqli_query($conn, "UPDATE customer SET points = COALESCE(points, 0) + $points_earned WHERE Customer_ID = $uid");
 
         // Record entry in loyalty_logs
-        $desc = "Earned $points_earned points from Order #$order_id";
-        $log_sql = "INSERT INTO loyalty_logs (user_id, order_id, points, transaction_type, description) 
-                    VALUES ('$user_id', '$order_id', '$points_earned', 'EARNED', '$desc')";
-        mysqli_query($conn, $log_sql);
+        $oid = $order_id ? (int)$order_id : "NULL";
+        $desc = mysqli_real_escape_string($conn, "Earned $points_earned points from Order #$order_id");
+        mysqli_query($conn, "INSERT INTO loyalty_logs (user_id, order_id, points, transaction_type, description) 
+                    VALUES ($uid, $oid, $points_earned, 'EARNED', '$desc')");
     }
     return $points_earned;
+}
+
+/**
+ * Helper Function: Redeem Loyalty Points
+ * Deducts points from customer balance and logs the redemption.
+ * Returns the actual number of points redeemed (capped at current balance).
+ */
+function redeemLoyaltyPoints($conn, $user_id, $order_id, $points_to_redeem) {
+    if ($points_to_redeem <= 0 || !$user_id) return 0;
+    
+    $uid = (int)$user_id;
+    $pts = (int)$points_to_redeem;
+    
+    // Check current balance — cannot redeem more than what customer has
+    $res = mysqli_query($conn, "SELECT points FROM customer WHERE Customer_ID = $uid LIMIT 1");
+    if (!$res || !($row = mysqli_fetch_assoc($res))) return 0;
+    
+    $current = (int)($row['points'] ?? 0);
+    $actual_redeem = min($pts, $current);
+    
+    if ($actual_redeem <= 0) return 0;
+    
+    // Deduct points from balance
+    mysqli_query($conn, "UPDATE customer SET points = GREATEST(0, points - $actual_redeem) WHERE Customer_ID = $uid");
+    
+    // Log redemption in loyalty_logs
+    $oid = $order_id ? (int)$order_id : "NULL";
+    $desc = mysqli_real_escape_string($conn, "Redeemed $actual_redeem points on Order #$order_id (discount applied)");
+    mysqli_query($conn, "INSERT INTO loyalty_logs (user_id, order_id, points, transaction_type, description) 
+                VALUES ($uid, $oid, $actual_redeem, 'REDEEMED', '$desc')");
+    
+    return $actual_redeem;
 }
 
 /**
