@@ -17,22 +17,27 @@ if (!$conn) {
     die("Database Connection Failed: " . mysqli_connect_error());
 }
 
-// Auto-create audit_logs table for employee tracking
-@mysqli_query($conn, "CREATE TABLE IF NOT EXISTS `audit_logs` (
-    `log_id` INT AUTO_INCREMENT PRIMARY KEY,
-    `employee_id` INT NOT NULL,
-    `action_type` VARCHAR(50) NOT NULL,
-    `description` TEXT,
-    `reference_id` INT DEFAULT NULL,
-    `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    KEY `idx_employee` (`employee_id`),
-    KEY `idx_action` (`action_type`)
+// 1. Auto-create audit_log table for employee tracking (matching updated schema)
+@mysqli_query($conn, "CREATE TABLE IF NOT EXISTS `audit_log` (
+    `Log_id` INT AUTO_INCREMENT PRIMARY KEY,
+    `Employee_id` INT NOT NULL,
+    `Action_type` VARCHAR(50) NOT NULL,
+    `Details` TEXT,
+    `Reference_id` INT DEFAULT NULL,
+    `Timestamp` DATETIME DEFAULT CURRENT_TIMESTAMP,
+    KEY `idx_employee` (`Employee_id`),
+    KEY `idx_action` (`Action_type`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci");
 
-// Ensure purchase_transaction has Employee_ID column
-@mysqli_query($conn, "ALTER TABLE `purchase_transaction` ADD COLUMN `Employee_ID` INT DEFAULT NULL");
+// Backward compatibility check: copy old `audit_logs` data if present
+@mysqli_query($conn, "INSERT INTO `audit_log` (`Employee_id`, `Action_type`, `Details`, `Reference_id`, `Timestamp`) 
+                      SELECT `employee_id`, `action_type`, `description`, `reference_id`, `created_at` FROM `audit_logs`");
 
-// Auto-create loyalty_logs table for points tracking
+// Ensure transaction tables have Employee_id columns
+@mysqli_query($conn, "ALTER TABLE `purchase_transaction` ADD COLUMN `Employee_id` INT DEFAULT NULL");
+@mysqli_query($conn, "ALTER TABLE `orders` ADD COLUMN `Employee_id` INT DEFAULT NULL");
+
+// 2. Auto-create loyalty_logs table for points tracking
 @mysqli_query($conn, "CREATE TABLE IF NOT EXISTS `loyalty_logs` (
     `log_id` INT AUTO_INCREMENT PRIMARY KEY,
     `user_id` INT NOT NULL,
@@ -54,7 +59,7 @@ function processOrderLoyaltyPoints($conn, $user_id, $order_id, $total_amount) {
     $points_earned = (int)floor($total_amount / 500) * 10;
     
     if ($points_earned > 0 && $uid > 0) {
-        // Update customer points balance (uses 'points' column consistently)
+        // Update customer points balance
         mysqli_query($conn, "UPDATE customer SET points = COALESCE(points, 0) + $points_earned WHERE Customer_ID = $uid");
 
         // Record entry in loyalty_logs
@@ -69,7 +74,6 @@ function processOrderLoyaltyPoints($conn, $user_id, $order_id, $total_amount) {
 /**
  * Helper Function: Redeem Loyalty Points
  * Deducts points from customer balance and logs the redemption.
- * Returns the actual number of points redeemed (capped at current balance).
  */
 function redeemLoyaltyPoints($conn, $user_id, $order_id, $points_to_redeem) {
     if ($points_to_redeem <= 0 || !$user_id) return 0;
@@ -77,7 +81,7 @@ function redeemLoyaltyPoints($conn, $user_id, $order_id, $points_to_redeem) {
     $uid = (int)$user_id;
     $pts = (int)$points_to_redeem;
     
-    // Check current balance — cannot redeem more than what customer has
+    // Check current balance
     $res = mysqli_query($conn, "SELECT points FROM customer WHERE Customer_ID = $uid LIMIT 1");
     if (!$res || !($row = mysqli_fetch_assoc($res))) return 0;
     
@@ -100,17 +104,32 @@ function redeemLoyaltyPoints($conn, $user_id, $order_id, $points_to_redeem) {
 
 /**
  * Helper Function: Employee Audit Trail Logger
- * Logs every sale, supplier purchase, exchange, or stock edit against an employee ID.
+ * Auto-detects active Employee session if null, logs actions into audit_log table.
  */
-function logEmployeeAction($conn, $employee_id, $action_type, $description, $reference_id = null) {
-    $emp_id = (int)($employee_id ?? 1); // Defaults to Admin employee ID (1) if no active staff session
+function logEmployeeAction($conn, $action_type, $description, $reference_id = null, $employee_id = null) {
+    if (session_status() === PHP_SESSION_NONE) {
+        session_start();
+    }
+
+    // Resolve employee ID automatically if not passed explicitly
+    if ($employee_id === null) {
+        $raw_emp = $_SESSION['Employee_id'] ?? $_SESSION['employee_id'] ?? $_SESSION['user_id'] ?? 1;
+        $employee_id = (int) preg_replace('/[^0-9]/', '', (string)$raw_emp);
+    }
+
+    $emp_id = $employee_id > 0 ? $employee_id : 1;
     $action = mysqli_real_escape_string($conn, $action_type);
     $desc   = mysqli_real_escape_string($conn, $description);
-    $ref    = $reference_id ? (int)$reference_id : "NULL";
+    $ref    = ($reference_id !== null) ? (int)$reference_id : "NULL";
 
-    $sql = "INSERT INTO audit_logs (employee_id, action_type, description, reference_id) 
+    $sql = "INSERT INTO audit_log (Employee_id, Action_type, Details, Reference_id) 
             VALUES ($emp_id, '$action', '$desc', $ref)";
             
     return mysqli_query($conn, $sql);
+}
+
+// Alias function for compatibility
+function log_audit_trail($conn, $action_type, $details, $reference_id = null) {
+    return logEmployeeAction($conn, $action_type, $details, $reference_id);
 }
 ?>
