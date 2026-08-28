@@ -2,50 +2,59 @@
 if (session_status() === PHP_SESSION_NONE) { session_start(); }
 include("DBconnect.php");
 
-$result = mysqli_query($conn, "SELECT * FROM category ORDER BY Category_ID DESC");
+$msg = "";
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['category_name'])) {
+    $cname = mysqli_real_escape_string($conn, $_POST['category_name']);
+    if (!empty($cname)) {
+        mysqli_query($conn, "INSERT INTO category (Category_name) VALUES ('$cname')");
+        $msg = "Category added!";
+    }
+}
+
+if (isset($_GET['delete_cat'])) {
+    $cid = (int)$_GET['delete_cat'];
+    mysqli_query($conn, "DELETE FROM category WHERE Category_ID = $cid");
+    header("Location: show_category.php");
+    exit;
+}
+
+$categories_query = mysqli_query($conn, "SELECT * FROM category ORDER BY Category_ID DESC");
 ?>
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Categories - Plant Hub</title>
+    <title>Plant Categories - Plant Hub</title>
     <style>
-        body { font-family: 'Segoe UI', sans-serif; background: #f8fafc; padding: 20px; }
-        .container { max-width: 800px; margin: 0 auto; background: white; padding: 25px; border-radius: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.05); }
-        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
-        .btn { background: #10b981; color: white; padding: 8px 14px; text-decoration: none; border-radius: 6px; font-weight: bold; font-size: 14px; }
-        .btn-edit { background: #0284c7; } .btn-del { background: #e11d48; }
-        table { width: 100%; border-collapse: collapse; }
-        th, td { padding: 12px; border-bottom: 1px solid #e2e8f0; text-align: left; }
-        th { background: #f1f5f9; }
+        body { font-family: 'Segoe UI', sans-serif; background: #f0fdf4; margin: 0; padding: 20px; color: #1e293b; }
+        .container { max-width: 600px; margin: 30px auto; background: white; padding: 25px; border-radius: 12px; border: 1px solid #e2e8f0; }
+        .form-control { width: 100%; padding: 10px; margin: 6px 0 14px; border: 1px solid #cbd5e1; border-radius: 6px; box-sizing: border-box; }
+        .btn { background: #10b981; color: white; border: none; padding: 10px 16px; border-radius: 6px; font-weight: bold; cursor: pointer; width: 100%; }
+        .table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+        .table th, .table td { padding: 10px; border-bottom: 1px solid #e2e8f0; text-align: left; }
+        .btn-del { background: #ef4444; color: white; padding: 4px 8px; border-radius: 4px; text-decoration: none; font-size: 12px; }
+        .btn-back { background: #64748b; color: white; padding: 8px 16px; border-radius: 6px; text-decoration: none; font-weight: bold; float: right; }
     </style>
 </head>
 <body>
 <div class="container">
-    <div class="header">
-        <h2>📁 Plant Categories</h2>
-        <div>
-            <a href="add_category.php" class="btn">➕ Add Category</a>
-            <a href="employee_dashboard.php" class="btn" style="background:#64748b;">Dashboard</a>
-        </div>
-    </div>
-    <table>
-        <thead>
-            <tr><th>ID</th><th>Category Name</th><th>Actions</th></tr>
-        </thead>
+    <a href="employee_dashboard.php" class="btn-back">⬅ Dashboard</a>
+    <h2>📁 Plant Categories</h2>
+    <form method="POST">
+        <label>New Category Name</label>
+        <input type="text" name="category_name" class="form-control" required>
+        <button type="submit" class="btn">Add Category</button>
+    </form>
+    <table class="table">
+        <thead><tr><th>ID</th><th>Category Name</th><th>Action</th></tr></thead>
         <tbody>
-            <?php if ($result && mysqli_num_rows($result) > 0): ?>
-                <?php while ($row = mysqli_fetch_assoc($result)): ?>
+            <?php if ($categories_query && mysqli_num_rows($categories_query) > 0): ?>
+                <?php while ($c = mysqli_fetch_assoc($categories_query)): ?>
                 <tr>
-                    <td>#<?php echo $row['Category_ID'] ?? $row['category_id']; ?></td>
-                    <td><strong><?php echo htmlspecialchars($row['Category_name'] ?? $row['category_name']); ?></strong></td>
-                    <td>
-                        <a href="modify_category.php?id=<?php echo $row['Category_ID'] ?? $row['category_id']; ?>" class="btn btn-edit">Edit</a>
-                        <a href="delete_category.php?id=<?php echo $row['Category_ID'] ?? $row['category_id']; ?>" class="btn btn-del" onclick="return confirm('Delete category?')">Delete</a>
-                    </td>
+                    <td>#<?php echo $c['Category_ID'] ?? $c['category_id']; ?></td>
+                    <td><?php echo htmlspecialchars($c['Category_name'] ?? $c['category_name']); ?></td>
+                    <td><a href="show_category.php?delete_cat=<?php echo $c['Category_ID'] ?? $c['category_id']; ?>" class="btn-del" onclick="return confirm('Delete category?')">Delete</a></td>
                 </tr>
                 <?php endwhile; ?>
-            <?php else: ?>
-                <tr><td colspan="3" style="text-align:center; color:#64748b;">No categories created yet.</td></tr>
             <?php endif; ?>
         </tbody>
     </table>

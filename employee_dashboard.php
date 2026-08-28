@@ -4,15 +4,15 @@ if (session_status() === PHP_SESSION_NONE) {
 }
 include("DBconnect.php");
 
-// Session validation
+// 1. Employee Session Security Check
 $employee_id = $_SESSION['Employee_id'] ?? $_SESSION['employee_id'] ?? $_SESSION['user_id'] ?? null;
 if (!$employee_id) {
     header("Location: login.php");
     exit;
 }
 
-// Determine user role badge display
-$is_employee = isset($_SESSION['Employee_id']) || isset($_SESSION['employee_id']) || isset($_SESSION['role']) && $_SESSION['role'] === 'employee';
+// 2. Role Check and Username Resolution
+$is_employee = isset($_SESSION['Employee_id']) || isset($_SESSION['employee_id']) || (isset($_SESSION['role']) && $_SESSION['role'] === 'employee');
 $role_label = $is_employee ? '👤 Employee' : '👤 Customer';
 
 $emp_username = $_SESSION['username'] ?? $_SESSION['Employee_name'] ?? ('emp' . preg_replace('/[^0-9]/', '', (string)$employee_id));
@@ -28,7 +28,7 @@ $emp_username = $_SESSION['username'] ?? $_SESSION['Employee_name'] ?? ('emp' . 
         .nav-links { display: flex; align-items: center; gap: 20px; }
         .nav-links a { color: #334155; text-decoration: none; font-weight: 600; font-size: 14px; }
         .user-badge { background: #e0f2fe; color: #0369a1; padding: 6px 14px; border-radius: 20px; font-weight: 600; font-size: 13px; display: flex; align-items: center; gap: 6px; }
-        .nav-links .btn-logout { background: #fee2e2; color: #ef4444; padding: 6px 16px; border-radius: 20px; transition: background 0.2s; }
+        .nav-links .btn-logout { background: #fee2e2; color: #ef4444; padding: 6px 16px; border-radius: 20px; transition: background 0.2s; text-decoration: none; }
         .nav-links .btn-logout:hover { background: #fca5a5; }
         
         .container { max-width: 1100px; margin: 30px auto; padding: 0 20px; }
@@ -53,7 +53,7 @@ $emp_username = $_SESSION['username'] ?? $_SESSION['Employee_name'] ?? ('emp' . 
 </head>
 <body>
 
-<!-- Header Bar showing Logged In Role Status -->
+<!-- Header Navigation -->
 <div class="navbar">
     <a href="employee_dashboard.php" class="logo">🌱 Plant Hub</a>
     <div class="nav-links">
@@ -64,27 +64,28 @@ $emp_username = $_SESSION['username'] ?? $_SESSION['Employee_name'] ?? ('emp' . 
 </div>
 
 <div class="container">
+    <!-- Welcome Banner -->
     <div class="hero-banner">
         <h1>Employee Operations Dashboard 📊</h1>
         <p>Welcome back, <strong><?php echo htmlspecialchars($emp_username); ?></strong>. Here is your operational overview for today.</p>
     </div>
 
-    <!-- Quick Management Action Cards -->
+    <!-- Quick Management Action Cards (Routes to specific separate PHP pages) -->
     <div class="section-title">⚡ Quick Management Actions</div>
     <div class="quick-actions">
-        <a href="manage_plants.php" class="action-card">
+        <a href="add_plant.php" class="action-card">
             <div class="icon">➕</div>
             <h3>Add New Plant</h3>
             <p>Insert new plant inventory & stock</p>
         </a>
         
-        <a href="manage_plants.php" class="action-card">
+        <a href="show_plant.php" class="action-card">
             <div class="icon">🌿</div>
             <h3>Manage Plants</h3>
             <p>View, edit, or remove plant stock</p>
         </a>
 
-        <a href="manage_plants.php" class="action-card">
+        <a href="show_category.php" class="action-card">
             <div class="icon">📁</div>
             <h3>Plant Categories</h3>
             <p>Add and manage plant categories</p>
@@ -97,7 +98,7 @@ $emp_username = $_SESSION['username'] ?? $_SESSION['Employee_name'] ?? ('emp' . 
         </a>
     </div>
 
-    <!-- System Overview Counters -->
+    <!-- System Overview Section -->
     <div class="section-title">📈 System Overview</div>
     <div class="stats-grid">
         <div class="stat-card">

@@ -2,57 +2,53 @@
 if (session_status() === PHP_SESSION_NONE) { session_start(); }
 include("DBconnect.php");
 
-$query = "SELECT * FROM plant ORDER BY Plant_ID DESC";
-$result = mysqli_query($conn, $query);
+if (isset($_GET['delete_plant'])) {
+    $del_id = (int)$_GET['delete_plant'];
+    mysqli_query($conn, "DELETE FROM plant WHERE Plant_ID = $del_id");
+    header("Location: show_plant.php");
+    exit;
+}
+
+$plants_query = mysqli_query($conn, "SELECT * FROM plant ORDER BY Plant_ID DESC");
 ?>
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Plant Catalog - Plant Hub</title>
+    <title>Manage Plants - Plant Hub</title>
     <style>
-        body { font-family: 'Segoe UI', sans-serif; background: #f8fafc; margin: 0; padding: 20px; }
-        .container { max-width: 1000px; margin: 0 auto; background: white; padding: 25px; border-radius: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.05); }
-        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
-        .btn { background: #10b981; color: white; padding: 8px 14px; text-decoration: none; border-radius: 6px; font-weight: bold; font-size: 14px; }
-        .btn-edit { background: #0284c7; }
-        .btn-del { background: #e11d48; }
-        table { width: 100%; border-collapse: collapse; margin-top: 15px; }
-        th, td { padding: 12px; border-bottom: 1px solid #e2e8f0; text-align: left; }
-        th { background: #f1f5f9; }
+        body { font-family: 'Segoe UI', sans-serif; background: #f0fdf4; margin: 0; padding: 20px; color: #1e293b; }
+        .container { max-width: 900px; margin: 30px auto; background: white; padding: 25px; border-radius: 12px; border: 1px solid #e2e8f0; }
+        .table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+        .table th, .table td { padding: 12px; border-bottom: 1px solid #e2e8f0; text-align: left; }
+        .table th { background: #f8fafc; }
+        .btn-del { background: #ef4444; color: white; padding: 6px 12px; border-radius: 6px; text-decoration: none; font-size: 12px; }
+        .btn-back { background: #64748b; color: white; padding: 8px 16px; border-radius: 6px; text-decoration: none; font-weight: bold; }
     </style>
 </head>
 <body>
 <div class="container">
-    <div class="header">
-        <h2>🌿 Plant Inventory Management</h2>
-        <div>
-            <a href="add_plant.php" class="btn">➕ Add New Plant</a>
-            <a href="employee_dashboard.php" class="btn" style="background:#64748b;">Dashboard</a>
-        </div>
+    <div style="display: flex; justify-content: space-between; align-items: center;">
+        <h2>🌿 Manage Plant Inventory</h2>
+        <a href="employee_dashboard.php" class="btn-back">⬅ Back to Dashboard</a>
     </div>
-    <table>
+    <table class="table">
         <thead>
-            <tr>
-                <th>ID</th><th>Plant Name</th><th>Category</th><th>Price</th><th>Stock</th><th>Actions</th>
-            </tr>
+            <tr><th>ID</th><th>Name</th><th>Category</th><th>Price</th><th>Stock</th><th>Action</th></tr>
         </thead>
         <tbody>
-            <?php if ($result && mysqli_num_rows($result) > 0): ?>
-                <?php while ($row = mysqli_fetch_assoc($result)): ?>
+            <?php if ($plants_query && mysqli_num_rows($plants_query) > 0): ?>
+                <?php while ($p = mysqli_fetch_assoc($plants_query)): ?>
                 <tr>
-                    <td>#<?php echo $row['Plant_ID']; ?></td>
-                    <td><strong><?php echo htmlspecialchars($row['Plant_name']); ?></strong></td>
-                    <td><?php echo htmlspecialchars($row['Category'] ?? 'N/A'); ?></td>
-                    <td>৳<?php echo number_format($row['Price'], 2); ?></td>
-                    <td><?php echo $row['Stock_quantity']; ?></td>
-                    <td>
-                        <a href="modify_plant.php?id=<?php echo $row['Plant_ID']; ?>" class="btn btn-edit">Edit</a>
-                        <a href="delete_plant.php?id=<?php echo $row['Plant_ID']; ?>" class="btn btn-del" onclick="return confirm('Delete this plant?')">Delete</a>
-                    </td>
+                    <td>#<?php echo $p['Plant_ID']; ?></td>
+                    <td><strong><?php echo htmlspecialchars($p['Plant_name']); ?></strong></td>
+                    <td><?php echo htmlspecialchars($p['Category'] ?? '-'); ?></td>
+                    <td>৳<?php echo number_format($p['Price'], 2); ?></td>
+                    <td><?php echo $p['Stock_quantity']; ?></td>
+                    <td><a href="show_plant.php?delete_plant=<?php echo $p['Plant_ID']; ?>" class="btn-del" onclick="return confirm('Delete plant?')">Delete</a></td>
                 </tr>
                 <?php endwhile; ?>
             <?php else: ?>
-                <tr><td colspan="6" style="text-align:center; color:#64748b;">No plants found in stock.</td></tr>
+                <tr><td colspan="6" style="text-align:center;">No plants available.</td></tr>
             <?php endif; ?>
         </tbody>
     </table>
