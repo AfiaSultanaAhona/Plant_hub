@@ -79,15 +79,26 @@ if (isset($_GET['msg'])) {
     } elseif ($_GET['msg'] === 'deleted') {
         $i = (int)($_GET['id'] ?? 0);
         $msg = "🗑️ Plant #$i deleted successfully.";
+    } elseif ($_GET['msg'] === 'added_new') {
+        $msg = "🌱 New plant added successfully.";
     }
 }
 
-// 5. Fetch Inventory Data with Category Join Detection
+// 5. View Switcher Data Fetching
 $view = $_GET['view'] ?? 'dashboard';
-$plants_query = null;
 
+// Statistics for Home Page
+$total_plants = 0;
+$total_stock = 0;
+$count_res = mysqli_query($conn, "SELECT COUNT(*) AS total_p, SUM(Stock_quantity) AS total_s FROM plant");
+if ($count_res && $row = mysqli_fetch_assoc($count_res)) {
+    $total_plants = $row['total_p'] ?? 0;
+    $total_stock = $row['total_s'] ?? 0;
+}
+
+// Data for Inventory View
+$plants_query = null;
 if ($view === 'inventory') {
-    // Attempt standard query with joined categories if category table exists
     $sql = "SELECT p.*, COALESCE(c.Category_name, c.category_name, c.Name, c.name, p.Category, p.category, 'General') AS fetched_category 
             FROM plant p 
             LEFT JOIN category c ON p.Category_ID = c.Category_ID OR p.category_id = c.category_id OR p.Category = c.Category_ID 
@@ -95,7 +106,6 @@ if ($view === 'inventory') {
             
     $plants_query = mysqli_query($conn, $sql);
     
-    // Fallback if JOIN fails due to schema variations
     if (!$plants_query) {
         $plants_query = mysqli_query($conn, "SELECT * FROM plant ORDER BY 1 ASC");
     }
@@ -116,6 +126,10 @@ if ($view === 'inventory') {
         .btn-logout { background: #fee2e2; color: #ef4444; padding: 6px 16px; border-radius: 20px; text-decoration: none; }
         .container { max-width: 1100px; margin: 30px auto; padding: 0 20px; }
         .card { background: white; padding: 25px; border-radius: 12px; border: 1px solid #e2e8f0; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px; margin-top: 20px; }
+        .stat-card { background: white; padding: 20px; border-radius: 12px; border: 1px solid #e2e8f0; text-align: center; }
+        .stat-card h3 { margin: 0; font-size: 32px; color: #15803d; }
+        .stat-card p { margin: 5px 0 0 0; color: #64748b; font-weight: 600; }
         .table { width: 100%; border-collapse: collapse; text-align: left; margin-top: 15px; }
         .table th { background: #f8fafc; padding: 12px; border-bottom: 2px solid #e2e8f0; color: #475569; }
         .table td { padding: 12px; border-bottom: 1px solid #e2e8f0; }
@@ -172,11 +186,8 @@ if ($view === 'inventory') {
                             $row = array_change_key_case($p, CASE_LOWER);
                             $pid    = $row['plant_id'] ?? $row['id'] ?? 0;
                             $pname  = $row['plant_name'] ?? $row['name'] ?? '-';
-                            
-                            // Category resolution cascade
-                            $pcat   = $row['fetched_category'] ?? $row['category'] ?? $row['category_name'] ?? $row['category_id'] ?? 'Indoor';
+                            $pcat   = $row['fetched_category'] ?? $row['category'] ?? $row['category_name'] ?? 'Indoor';
                             if (is_numeric($pcat)) { $pcat = "Category #" . $pcat; }
-                            
                             $pprice = (float)($row['price'] ?? $row['plant_price'] ?? $row['unit_price'] ?? 0);
                             $pstock = $row['stock_quantity'] ?? $row['stock'] ?? 0;
                         ?>
@@ -204,6 +215,26 @@ if ($view === 'inventory') {
                     <?php endif; ?>
                 </tbody>
             </table>
+        </div>
+    <?php else: ?>
+        <!-- Home Dashboard View -->
+        <div class="card">
+            <h2>Welcome, <?php echo htmlspecialchars($emp_username); ?> 👋</h2>
+            <p style="color:#64748b;">Manage plant inventory, update stock levels, and track system records from your dashboard.</p>
+        </div>
+
+        <div class="grid">
+            <div class="stat-card">
+                <h3><?php echo $total_plants; ?></h3>
+                <p>Total Plant Types</p>
+            </div>
+            <div class="stat-card">
+                <h3><?php echo $total_stock; ?></h3>
+                <p>Total Stock Items</p>
+            </div>
+            <div class="stat-card" style="display:flex; flex-direction:column; justify-content:center; align-items:center;">
+                <a href="employee_dashboard.php?view=inventory" class="btn-add" style="width:80%; text-align:center;">🌿 Manage Inventory</a>
+            </div>
         </div>
     <?php endif; ?>
 </div>
