@@ -4,7 +4,7 @@ if (session_status() === PHP_SESSION_NONE) {
 }
 include("DBconnect.php");
 
-// Disable fatal exceptions for mysql operations
+// Turn off fatal SQL exceptions for safe execution
 mysqli_report(MYSQLI_REPORT_OFF);
 
 if (!isset($_SESSION['cart'])) {
@@ -31,7 +31,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST['action'])) {
     }
 }
 
-// Calculate Total Amount
+// Calculate Cart Total Amount
 $total_amount = 0;
 foreach ($_SESSION['cart'] as $item) {
     $total_amount += (float)$item['price'] * (int)$item['quantity'];
@@ -51,31 +51,38 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST['action']) && $_POST['
         $clean_id = mysqli_real_escape_string($conn, (string)$raw_id);
         $numeric_id = (int)preg_replace('/[^0-9]/', '', $clean_id);
 
-        // 1. Calculate Earned Loyalty Points (10 points per ৳500 spent)
+        // Calculate Earned Loyalty Points (10 points per ৳500 spent)
         $earned_points = (int)(floor($total_amount / 500) * 10);
 
-        // 2. Perform Points Database Update
+        // 1. Update Customer Points in DB (Handles String IDs, Integers, and LIKE matches)
         $update_sql = "UPDATE customer 
                        SET points = COALESCE(points, 0) + $earned_points 
-                       WHERE Customer_ID = '$clean_id' OR Customer_ID = '$numeric_id'";
-        
-        $update_query = mysqli_query($conn, $update_sql);
+                       WHERE Customer_ID = '$clean_id' 
+                          OR Customer_ID = '$numeric_id' 
+                          OR Customer_ID LIKE '%$numeric_id%'";
+        mysqli_query($conn, $update_sql);
 
-        // Fallback: If no rows affected, create/fix matching row ID
+        // Fallback update if primary key is named id / customer_id (lowercase)
         if (mysqli_affected_rows($conn) <= 0) {
-            mysqli_query($conn, "UPDATE customer SET points = COALESCE(points, 0) + $earned_points WHERE Customer_ID LIKE '%$numeric_id'");
+            mysqli_query($conn, "UPDATE customer SET points = COALESCE(points, 0) + $earned_points WHERE id = '$numeric_id' OR customer_id = '$numeric_id'");
         }
 
-        // 3. Fetch latest points directly from DB to sync Session
-        $fetch_sql = "SELECT points FROM customer WHERE Customer_ID = '$clean_id' OR Customer_ID = '$numeric_id' LIMIT 1";
+        // 2. Query updated points directly from DB to sync display & session
+        $fetch_sql = "SELECT points FROM customer 
+                      WHERE Customer_ID = '$clean_id' 
+                         OR Customer_ID = '$numeric_id' 
+                         OR Customer_ID LIKE '%$numeric_id%' LIMIT 1";
         $fetch_res = mysqli_query($conn, $fetch_sql);
+        
         if ($fetch_res && $row = mysqli_fetch_assoc($fetch_res)) {
-            $_SESSION['points'] = (int)$row['points'];
+            $user_points = (int)$row['points'];
+            $_SESSION['points'] = $user_points;
         } else {
-            $_SESSION['points'] = (isset($_SESSION['points']) ? $_SESSION['points'] : 0) + $earned_points;
+            $_SESSION['points'] = (isset($_SESSION['points']) ? (int)$_SESSION['points'] : 0) + $earned_points;
+            $user_points = $_SESSION['points'];
         }
 
-        // 4. Record order & clear cart
+        // 3. Clear cart & set success alert
         $_SESSION['cart'] = [];
         $message = "🎉 Order confirmed! You earned <strong>+$earned_points points</strong>!";
         $message_type = "success";
@@ -84,17 +91,20 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST['action']) && $_POST['
 }
 
 // Fetch display points for store wallet header component
-$user_points = 0;
-if (isset($_SESSION['customer_id']) || isset($_SESSION['user_id'])) {
-    $raw_id = $_SESSION['customer_id'] ?? $_SESSION['user_id'];
-    $clean_id = mysqli_real_escape_string($conn, (string)$raw_id);
-    $numeric_id = (int)preg_replace('/[^0-9]/', '', $clean_id);
-    
-    $pts_res = mysqli_query($conn, "SELECT points FROM customer WHERE Customer_ID = '$clean_id' OR Customer_ID = '$numeric_id' LIMIT 1");
-    if ($pts_res && $prow = mysqli_fetch_assoc($pts_res)) {
-        $user_points = (int)($prow['points'] ?? 0);
-    } else {
-        $user_points = (int)($_SESSION['points'] ?? 0);
+if (!isset($user_points)) {
+    $user_points = 0;
+    if (isset($_SESSION['customer_id']) || isset($_SESSION['user_id']) || isset($_SESSION['id'])) {
+        $raw_id = $_SESSION['customer_id'] ?? $_SESSION['user_id'] ?? $_SESSION['id'];
+        $clean_id = mysqli_real_escape_string($conn, (string)$raw_id);
+        $numeric_id = (int)preg_replace('/[^0-9]/', '', $clean_id);
+        
+        $pts_res = mysqli_query($conn, "SELECT points FROM customer WHERE Customer_ID = '$clean_id' OR Customer_ID = '$numeric_id' OR Customer_ID LIKE '%$numeric_id%' LIMIT 1");
+        if ($pts_res && $prow = mysqli_fetch_assoc($pts_res)) {
+            $user_points = (int)($prow['points'] ?? 0);
+            $_SESSION['points'] = $user_points;
+        } else {
+            $user_points = (int)($_SESSION['points'] ?? 0);
+        }
     }
 }
 ?>
@@ -146,7 +156,7 @@ if (isset($_SESSION['customer_id']) || isset($_SESSION['user_id'])) {
 
 <div class="container">
 
-    <!-- Top Stats Cards -->
+    <!-- Top Dashboard Cards -->
     <div class="dashboard-cards">
         <div class="card-box wallet-card">
             <div class="card-title">STORE WALLET BALANCE 💳</div>
