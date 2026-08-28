@@ -1,0 +1,30 @@
+<?php
+if(session_status()===PHP_SESSION_NONE)session_start();
+require_once "DBconnect.php";
+$raw_employee=$_SESSION['Employee_id']??$_SESSION['employee_id']??$_SESSION['user_id']??null;
+$employee_id=(int)preg_replace('/[^0-9]/','',(string)$raw_employee);
+if($employee_id<=0){header("Location: login.php");exit;}
+
+$summary=mysqli_fetch_assoc(mysqli_query($conn,"SELECT COALESCE(SUM(Amount),0) revenue,COUNT(*) orders_count FROM orders WHERE Amount>0"));
+$revenue=(float)$summary["revenue"];$orders_count=(int)$summary["orders_count"];
+$purchase_cost=(float)(mysqli_fetch_assoc(mysqli_query($conn,"SELECT COALESCE(SUM(Total_amount),0) total FROM purchase_transaction"))["total"]??0);
+
+$best=mysqli_query($conn,"SELECT p.Plant_name,COUNT(o.Order_id) units_sold,COALESCE(SUM(o.Amount),0) revenue FROM orders o JOIN plant p ON p.Plant_ID=o.Plant_id WHERE o.Amount>0 GROUP BY p.Plant_ID,p.Plant_name ORDER BY units_sold DESC,revenue DESC LIMIT 10");
+$customers=mysqli_query($conn,"SELECT c.Customer_name,COUNT(o.Order_id) orders_count,COALESCE(SUM(o.Amount),0) total_spent FROM orders o JOIN customer c ON c.Customer_ID=o.Customer_id WHERE o.Amount>0 GROUP BY c.Customer_ID,c.Customer_name ORDER BY total_spent DESC LIMIT 10");
+$suppliers=mysqli_query($conn,"SELECT s.Supplier_ID,s.Supplier_name,COUNT(DISTINCT pu.Purchase_ID) purchases,COALESCE(SUM(pci.Quantity),0) quantity,COALESCE(SUM(pci.Quantity*pci.Purchase_unit_price),0) spending FROM supplier s LEFT JOIN purchase pu ON pu.Supplier_ID=s.Supplier_ID LEFT JOIN purchase_contains_plant pci ON pci.Purchase_ID=pu.Purchase_ID GROUP BY s.Supplier_ID,s.Supplier_name ORDER BY spending DESC");
+$exchanges=mysqli_query($conn,"SELECT e.exchange_id,e.Exchange_date,e.Exchange_value,e.adjustment_direction,c.Customer_name,op.Plant_name offered_name,op.Unit_price offered_price,rp.Plant_name received_name,rp.Unit_price received_price FROM exchange e LEFT JOIN customer c ON c.Customer_ID=e.Customer_ID LEFT JOIN plant op ON op.Plant_ID=e.Offered_plant_ID LEFT JOIN plant rp ON rp.Plant_ID=e.Received_plant_ID WHERE e.status='Completed' ORDER BY e.exchange_id DESC");
+$exchange_margin=(float)(mysqli_fetch_assoc(mysqli_query($conn,"SELECT COALESCE(SUM(op.Unit_price-rp.Unit_price),0) margin FROM exchange e LEFT JOIN plant op ON op.Plant_ID=e.Offered_plant_ID LEFT JOIN plant rp ON rp.Plant_ID=e.Received_plant_ID WHERE e.status='Completed'"))["margin"]??0);
+?>
+<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><title>Reports & Analytics - Plant Hub</title>
+<style>
+body{font-family:Segoe UI,sans-serif;background:#f0fdf4;margin:0;color:#1e293b}.container{max-width:1150px;margin:30px auto;padding:0 20px}.back{display:inline-block;margin-bottom:20px;color:#0284c7;text-decoration:none;font-weight:700}.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:15px;margin-bottom:20px}.stat,.card{background:#fff;padding:22px;border-radius:14px;border:1px solid #e2e8f0;margin-bottom:20px}.stat small{color:#64748b;font-weight:700}.value{display:block;font-size:25px;font-weight:800;color:#065f46;margin-top:7px}h2{color:#065f46}table{width:100%;border-collapse:collapse}th,td{padding:11px;border-bottom:1px solid #e2e8f0;text-align:left}th{background:#f8fafc}.green{color:#059669;font-weight:700}.red{color:#dc2626;font-weight:700}@media(max-width:800px){.stats{grid-template-columns:1fr 1fr}}@media(max-width:550px){.stats{grid-template-columns:1fr}}
+</style></head><body>
+<?php if(file_exists("header.php"))include "header.php";?>
+<div class="container"><a class="back" href="employee_dashboard.php">← Back to Employee Dashboard</a><h2>📊 Reports & Analytics</h2>
+<div class="stats"><div class="stat"><small>TOTAL REVENUE</small><span class="value">৳<?=number_format($revenue,2)?></span></div><div class="stat"><small>TOTAL ORDERS</small><span class="value"><?=number_format($orders_count)?></span></div><div class="stat"><small>PURCHASE SPENDING</small><span class="value">৳<?=number_format($purchase_cost,2)?></span></div><div class="stat"><small>EXCHANGE MARGIN</small><span class="value">৳<?=number_format($exchange_margin,2)?></span></div></div>
+<div class="card"><h2>🏆 Best-Selling Plants</h2><table><tr><th>Plant</th><th>Units Sold</th><th>Revenue</th></tr><?php while($r=mysqli_fetch_assoc($best)):?><tr><td><?=htmlspecialchars($r["Plant_name"])?></td><td><?=$r["units_sold"]?></td><td class="green">৳<?=number_format((float)$r["revenue"],2)?></td></tr><?php endwhile;?></table></div>
+<div class="card"><h2>👑 Top Customers</h2><table><tr><th>Customer</th><th>Orders</th><th>Total Spent</th></tr><?php while($r=mysqli_fetch_assoc($customers)):?><tr><td><?=htmlspecialchars($r["Customer_name"])?></td><td><?=$r["orders_count"]?></td><td class="green">৳<?=number_format((float)$r["total_spent"],2)?></td></tr><?php endwhile;?></table></div>
+<div class="card"><h2>🚚 Supplier Comparison</h2><table><tr><th>Supplier</th><th>Purchases</th><th>Quantity</th><th>Spending</th></tr><?php while($r=mysqli_fetch_assoc($suppliers)):?><tr><td><?=htmlspecialchars($r["Supplier_name"])?></td><td><?=$r["purchases"]?></td><td><?=$r["quantity"]?></td><td class="green">৳<?=number_format((float)$r["spending"],2)?></td></tr><?php endwhile;?></table></div>
+<div class="card"><h2>🔄 Exchange Profitability</h2><p>Margin = catalog value of plant received from customer − catalog value of plant given to customer.</p><table><tr><th>ID</th><th>Customer</th><th>Customer Gives</th><th>Shop Gives</th><th>Margin</th></tr>
+<?php while($r=mysqli_fetch_assoc($exchanges)):$margin=(float)$r["offered_price"]-(float)$r["received_price"];?><tr><td>#<?=$r["exchange_id"]?></td><td><?=htmlspecialchars($r["Customer_name"]??"Customer")?></td><td><?=htmlspecialchars($r["offered_name"]??"-")?> (৳<?=number_format((float)$r["offered_price"],2)?>)</td><td><?=htmlspecialchars($r["received_name"]??"-")?> (৳<?=number_format((float)$r["received_price"],2)?>)</td><td class="<?=($margin>=0?'green':'red')?>"><?=($margin>=0?'+':'-')?>৳<?=number_format(abs($margin),2)?></td></tr><?php endwhile;?>
+</table></div></div></body></html>
