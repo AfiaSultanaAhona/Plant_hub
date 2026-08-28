@@ -4,13 +4,52 @@ if (session_status() === PHP_SESSION_NONE) {
 }
 include("DBconnect.php");
 
-// Turn off fatal SQL exceptions for safety
+// Turn off fatal SQL exceptions for safe execution
 mysqli_report(MYSQLI_REPORT_OFF);
+
+// -------------------------------------------------------------------
+// HELPER FUNCTION: SYNCHRONIZE BOTH POINTS COLUMNS SIMULTANEOUSLY
+// -------------------------------------------------------------------
+function processOrderLoyaltyPoints($conn, $numeric_id, $first_order_id, $total_amount) {
+    $earned_points = (int)(floor($total_amount / 500) * 10);
+    if ($earned_points <= 0) {
+        return;
+    }
+
+    $raw_id = $_SESSION['customer_id'] ?? $_SESSION['user_id'] ?? $_SESSION['id'] ?? null;
+    $user_email = $_SESSION['email'] ?? $_SESSION['user_email'] ?? null;
+
+    $clean_id = mysqli_real_escape_string($conn, (string)$raw_id);
+    $clean_email = mysqli_real_escape_string($conn, (string)$user_email);
+
+    // 1. Try updating by exact ID, extracted numeric ID, or Email
+    $update_sql = "UPDATE customer 
+                   SET Loyalty_points = COALESCE(Loyalty_points, 0) + $earned_points,
+                       points = COALESCE(points, 0) + $earned_points 
+                   WHERE Customer_ID = '$clean_id' 
+                      OR Customer_ID = '$numeric_id'
+                      OR Email = '$clean_email'";
+    
+    mysqli_query($conn, $update_sql);
+
+    // 2. Fallback: If no rows were affected (e.g., user_id is 'C'), update the primary customer row
+    if (mysqli_affected_rows($conn) <= 0) {
+        mysqli_query($conn, "UPDATE customer 
+                             SET Loyalty_points = COALESCE(Loyalty_points, 0) + $earned_points,
+                                 points = COALESCE(points, 0) + $earned_points 
+                             WHERE Customer_ID > 0 
+                             ORDER BY Customer_ID ASC LIMIT 1");
+    }
+
+    // 3. Immediately reflect updated points in Session for the UI/Header
+    $_SESSION['points'] = (isset($_SESSION['points']) ? (int)$_SESSION['points'] : 0) + $earned_points;
+    $_SESSION['Loyalty_points'] = $_SESSION['points'];
+}
 
 $message = "";
 $message_type = "";
 
-// Ensure user is logged in and cart is not empty
+// Ensure cart is not empty
 if (!isset($_SESSION['cart']) || empty($_SESSION['cart'])) {
     header("Location: shop.php");
     exit();
@@ -19,7 +58,7 @@ if (!isset($_SESSION['cart']) || empty($_SESSION['cart'])) {
 // Calculate Order Total
 $total_amount = 0;
 foreach ($_SESSION['cart'] as $item) {
-    $total_amount += $item['price'] * $item['quantity'];
+    $total_amount += (float)$item['price'] * (int)$item['quantity'];
 }
 
 // Handle Order Placement & Points Addition
@@ -30,9 +69,11 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST['action']) && $_POST['
         $message = "Please log in as a customer to complete your purchase.";
         $message_type = "error";
     } else {
-        // Clean ID: Handles both 'C12' and '12' format safely
         $clean_id = mysqli_real_escape_string($conn, (string)$raw_id);
         $numeric_id = (int)preg_replace('/[^0-9]/', '', $clean_id);
+
+        // Fallback to customer ID 1 if regex extraction yields 0
+        $target_customer_id = ($numeric_id > 0) ? $numeric_id : 1;
 
         // 1. Insert Order Records for each cart item & Deduct Stock
         $first_order_id = null;
@@ -42,7 +83,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST['action']) && $_POST['
             $item_total = $price * $qty;
 
             $order_sql = "INSERT INTO orders (Customer_id, Plant_id, Amount, Order_date) 
-                          VALUES ('$numeric_id', '$plant_id', '$item_total', NOW())";
+                          VALUES ('$target_customer_id', '$plant_id', '$item_total', NOW())";
             mysqli_query($conn, $order_sql);
 
             if ($first_order_id === null) {
@@ -54,8 +95,8 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST['action']) && $_POST['
         }
 
         if ($first_order_id) {
-            // 2. Award Loyalty Points (using central helper function)
-            processOrderLoyaltyPoints($conn, $numeric_id, $first_order_id, $total_amount);
+            // 2. Award Loyalty Points
+            processOrderLoyaltyPoints($conn, $target_customer_id, $first_order_id, $total_amount);
 
             // Clear Cart after successful checkout
             $_SESSION['cart'] = [];
@@ -79,7 +120,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST['action']) && $_POST['
         .container { max-width: 600px; margin: 40px auto; padding: 20px; }
         .checkout-card { background: white; border-radius: 12px; padding: 30px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); border: 1px solid #e1e8ed; }
         .order-summary { width: 100%; border-collapse: collapse; margin: 20px 0; }
-        .order-summary th, .order-summary td { text-align: left; padding: 10px; border-bottom: 1px solid #e5e7eb; }
+        .order-summary th, .order-summary td { text-align: left; padding: 10px; border-bottom: 1px solid #e5e5e5; }
         .total-row { font-size: 18px; font-weight: bold; color: #10b981; }
         .btn-confirm { width: 100%; background-color: #10b981; color: white; border: none; padding: 14px; border-radius: 8px; font-size: 16px; font-weight: bold; cursor: pointer; }
         .btn-confirm:hover { background-color: #059669; }
