@@ -17,15 +17,24 @@ $message = "";
 // LOYALTY SYSTEM FUNCTIONS & HELPERS
 // -------------------------------------------------------------
 
-// Active logged-in customer fallback for demo/testing
-$customer_id = $_SESSION['customer_id'] ?? $_SESSION['user_id'] ?? 1;
-$cid_numeric  = (int)preg_replace('/[^0-9]/', '', (string)$customer_id);
+// Active logged-in customer ID handling (supports "C1", "1", etc.)
+$customer_id = $_SESSION['customer_id'] ?? $_SESSION['user_id'] ?? 'C1';
 
-function getCustomerLoyaltyData($conn, $cid) {
-    if ($cid <= 0) return ['points' => 0, 'tier' => 'Bronze', 'badge' => '🥉'];
-    $res = mysqli_query($conn, "SELECT points FROM customer WHERE Customer_ID = $cid");
-    $row = mysqli_fetch_assoc($res);
-    $pts = (int)($row['points'] ?? 0);
+function getCustomerLoyaltyData($conn, $customer_id) {
+    if (empty($customer_id)) return ['points' => 0, 'tier' => 'Bronze', 'badge' => '🥉'];
+    
+    // Extract numeric part while preserving string check for dual database schema compatibility
+    $cid_numeric = (int)preg_replace('/[^0-9]/', '', (string)$customer_id);
+    $safe_id = mysqli_real_escape_string($conn, (string)$customer_id);
+
+    // Query checking both formatted ID ('C1') and numeric ID (1)
+    $sql = "SELECT points FROM customer WHERE Customer_ID = '$safe_id' OR Customer_ID = '$cid_numeric' OR Customer_ID = $cid_numeric LIMIT 1";
+    $res = mysqli_query($conn, $sql);
+    
+    $pts = 0;
+    if ($res && $row = mysqli_fetch_assoc($res)) {
+        $pts = (int)($row['points'] ?? 0);
+    }
 
     $tier = 'Bronze';
     $badge = '🥉';
@@ -40,9 +49,17 @@ function getCustomerLoyaltyData($conn, $cid) {
     return ['points' => $pts, 'tier' => $tier, 'badge' => $badge];
 }
 
-function updateCustomerPoints($conn, $cid, $points_delta) {
-    if ($cid <= 0) return false;
-    $sql = "UPDATE customer SET points = GREATEST(0, points + ($points_delta)) WHERE Customer_ID = $cid";
+function updateCustomerPoints($conn, $customer_id, $points_delta) {
+    if (empty($customer_id) || $points_delta == 0) return false;
+    
+    $cid_numeric = (int)preg_replace('/[^0-9]/', '', (string)$customer_id);
+    $safe_id = mysqli_real_escape_string($conn, (string)$customer_id);
+
+    // Update using multi-condition check to ensure database row match regardless of 'C' prefix column type
+    $sql = "UPDATE customer 
+            SET points = GREATEST(0, points + ($points_delta)) 
+            WHERE Customer_ID = '$safe_id' OR Customer_ID = '$cid_numeric' OR Customer_ID = $cid_numeric";
+            
     return mysqli_query($conn, $sql);
 }
 
@@ -84,7 +101,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST['action']) && $_POST['
             $raw_total += ($item['price'] * $item['quantity']);
         }
 
-        $loyalty = getCustomerLoyaltyData($conn, $cid_numeric);
+        $loyalty = getCustomerLoyaltyData($conn, $customer_id);
         $current_pts = $loyalty['points'];
 
         $final_paid_amount = $raw_total;
@@ -100,14 +117,14 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST['action']) && $_POST['
                 $final_paid_amount = $raw_total - $current_pts;
             }
             // Deduct redeemed points from database
-            updateCustomerPoints($conn, $cid_numeric, -$points_deducted);
+            updateCustomerPoints($conn, $customer_id, -$points_deducted);
         }
 
-        // Earn Points: 10 PTS for every ৳500 paid in cash/card (No points on point redemptions)
+        // Earn Points: 10 PTS for every ৳500 paid in cash/card
         $earned_points = 0;
         if ($final_paid_amount >= 500 && !$use_points) {
             $earned_points = (int)(floor($final_paid_amount / 500) * 10);
-            updateCustomerPoints($conn, $cid_numeric, $earned_points);
+            updateCustomerPoints($conn, $customer_id, $earned_points);
         }
 
         // Insert Orders into Database
@@ -115,8 +132,9 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST['action']) && $_POST['
             $p_id = $item['id'];
             $amt = $item['price'] * $item['quantity'];
             $pay_method = $use_points ? 'Loyalty Points' : 'Cash on Delivery';
+            $safe_cust_id = mysqli_real_escape_string($conn, $customer_id);
             mysqli_query($conn, "INSERT INTO orders (Customer_ID, plant_id, amount, Payment_Method, order_date) 
-                                 VALUES ('$customer_id', '$p_id', '$amt', '$pay_method', NOW())");
+                                 VALUES ('$safe_cust_id', '$p_id', '$amt', '$pay_method', NOW())");
         }
 
         $_SESSION['cart'] = [];
@@ -126,7 +144,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST['action']) && $_POST['
 }
 
 // Fetch Live Loyalty Info for Logged-In Customer
-$cust_loyalty = getCustomerLoyaltyData($conn, $cid_numeric);
+$cust_loyalty = getCustomerLoyaltyData($conn, $customer_id);
 $cart_count = array_sum(array_column($_SESSION['cart'], 'quantity'));
 $selected_category = $_GET['category'] ?? 'All';
 
