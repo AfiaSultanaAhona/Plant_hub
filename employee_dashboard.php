@@ -14,7 +14,7 @@ if (!$employee_id) {
 $role_label = '👤 Employee';
 $emp_username = $_SESSION['username'] ?? $_SESSION['Employee_name'] ?? ('emp' . preg_replace('/[^0-9]/', '', (string)$employee_id));
 
-// 2. Handle Add Stock Action (Strict PRG Pattern to prevent double execution)
+// 2. Handle Add Stock Action
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'add_stock') {
     $pid = (int)$_POST['plant_id'];
     $add_qty = (int)$_POST['add_quantity'];
@@ -36,12 +36,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             }
         }
 
+        // Update Stock
         $stmt = mysqli_prepare($conn, "UPDATE plant SET `$stock_col` = `$stock_col` + ? WHERE `$pk_col` = ?");
         if ($stmt) {
             mysqli_stmt_bind_param($stmt, "ii", $add_qty, $pid);
             mysqli_stmt_execute($stmt);
             mysqli_stmt_close($stmt);
         }
+
+        // Audit Log Entry
+        @mysqli_query($conn, "INSERT INTO stock_audit (Plant_ID, Employee_ID, Action, Quantity, Timestamp) VALUES ($pid, '$employee_id', 'ADD_STOCK', $add_qty, NOW())");
     }
 
     header("Location: employee_dashboard.php?view=inventory&msg=added&qty=$add_qty&id=$pid");
@@ -65,6 +69,8 @@ if (isset($_GET['action']) && $_GET['action'] === 'delete' && isset($_GET['id'])
     }
     
     mysqli_query($conn, "DELETE FROM plant WHERE `$pk_col` = $del_id");
+    @mysqli_query($conn, "INSERT INTO stock_audit (Plant_ID, Employee_ID, Action, Quantity, Timestamp) VALUES ($del_id, '$employee_id', 'DELETE', 0, NOW())");
+
     header("Location: employee_dashboard.php?view=inventory&msg=deleted&id=$del_id");
     exit;
 }
@@ -81,13 +87,15 @@ if (isset($_GET['msg'])) {
         $msg = "🗑️ Plant #$i deleted successfully.";
     } elseif ($_GET['msg'] === 'added_new') {
         $msg = "🌱 New plant added successfully.";
+    } elseif ($_GET['msg'] === 'updated') {
+        $msg = "✏️ Plant details updated successfully.";
     }
 }
 
 // 5. View Switcher Data Fetching
 $view = $_GET['view'] ?? 'dashboard';
 
-// Statistics for Home Page
+// Statistics for Dashboard View
 $total_plants = 0;
 $total_stock = 0;
 $count_res = mysqli_query($conn, "SELECT COUNT(*) AS total_p, SUM(Stock_quantity) AS total_s FROM plant");
@@ -110,6 +118,19 @@ if ($view === 'inventory') {
         $plants_query = mysqli_query($conn, "SELECT * FROM plant ORDER BY 1 ASC");
     }
 }
+
+// Data for Dedicated Audit View Only
+$audit_query = null;
+if ($view === 'audit') {
+    $audit_tables = ['stock_audit', 'audit', 'inventory_log', 'audit_log'];
+    foreach ($audit_tables as $table) {
+        $check_table = mysqli_query($conn, "SHOW TABLES LIKE '$table'");
+        if ($check_table && mysqli_num_rows($check_table) > 0) {
+            $audit_query = mysqli_query($conn, "SELECT * FROM `$table` ORDER BY 1 DESC LIMIT 50");
+            break;
+        }
+    }
+}
 ?>
 <!DOCTYPE html>
 <html>
@@ -125,8 +146,8 @@ if ($view === 'inventory') {
         .user-badge { background: #e0f2fe; color: #0369a1; padding: 6px 14px; border-radius: 20px; font-weight: 600; font-size: 13px; }
         .btn-logout { background: #fee2e2; color: #ef4444; padding: 6px 16px; border-radius: 20px; text-decoration: none; }
         .container { max-width: 1100px; margin: 30px auto; padding: 0 20px; }
-        .card { background: white; padding: 25px; border-radius: 12px; border: 1px solid #e2e8f0; }
-        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px; margin-top: 20px; }
+        .card { background: white; padding: 25px; border-radius: 12px; border: 1px solid #e2e8f0; margin-bottom: 25px; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px; margin-bottom: 25px; }
         .stat-card { background: white; padding: 20px; border-radius: 12px; border: 1px solid #e2e8f0; text-align: center; }
         .stat-card h3 { margin: 0; font-size: 32px; color: #15803d; }
         .stat-card p { margin: 5px 0 0 0; color: #64748b; font-weight: 600; }
@@ -134,11 +155,14 @@ if ($view === 'inventory') {
         .table th { background: #f8fafc; padding: 12px; border-bottom: 2px solid #e2e8f0; color: #475569; }
         .table td { padding: 12px; border-bottom: 1px solid #e2e8f0; }
         .btn-add { background: #10b981; color: white; padding: 8px 14px; border-radius: 6px; text-decoration: none; font-weight: bold; }
+        .btn-cat { background: #0284c7; color: white; padding: 8px 14px; border-radius: 6px; text-decoration: none; font-weight: bold; margin-right: 10px; }
+        .btn-edit { color: #0284c7; text-decoration: none; font-weight: bold; margin-right: 10px; }
         .btn-del { background: #ef4444; color: white; padding: 5px 10px; border-radius: 4px; text-decoration: none; font-size: 12px; }
         .alert-info { background: #dbeafe; color: #1e40af; padding: 10px 15px; border-radius: 6px; margin-bottom: 15px; }
         .stock-form { display: flex; gap: 6px; }
         .stock-input { width: 60px; padding: 4px 6px; border: 1px solid #cbd5e1; border-radius: 4px; }
         .btn-stock { background: #0284c7; color: white; border: none; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-weight: 600; }
+        .badge-action { padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: bold; background: #e2e8f0; }
     </style>
 </head>
 <body>
@@ -148,6 +172,7 @@ if ($view === 'inventory') {
     <div class="nav-links">
         <a href="employee_dashboard.php" class="<?php echo $view === 'dashboard' ? 'active' : ''; ?>">Home 🏠</a>
         <a href="employee_dashboard.php?view=inventory" class="<?php echo $view === 'inventory' ? 'active' : ''; ?>">Inventory 🌿</a>
+        <a href="employee_dashboard.php?view=audit" class="<?php echo $view === 'audit' ? 'active' : ''; ?>">Audit Logs 📋</a>
         <div class="user-badge"><?php echo $role_label; ?></div>
         <a href="logout.php" class="btn-logout">Logout</a>
     </div>
@@ -155,10 +180,12 @@ if ($view === 'inventory') {
 
 <div class="container">
     <?php if ($view === 'inventory'): ?>
+        <!-- Inventory View -->
         <div class="card">
             <div style="display:flex; justify-content:space-between; align-items:center;">
                 <h2>🌿 Plant Inventory Management</h2>
                 <div>
+                    <a href="manage_categories.php" class="btn-cat">🏷️ Manage Categories</a>
                     <a href="add_plant.php" class="btn-add" style="margin-right: 15px;">➕ Add Plant</a>
                     <a href="employee_dashboard.php" style="color:#0284c7; text-decoration:none; font-weight:bold;">← Back to Dashboard</a>
                 </div>
@@ -206,6 +233,7 @@ if ($view === 'inventory') {
                                 </form>
                             </td>
                             <td>
+                                <a href="edit_plant.php?id=<?php echo $pid; ?>" class="btn-edit">Edit</a>
                                 <a href="employee_dashboard.php?view=inventory&action=delete&id=<?php echo $pid; ?>" class="btn-del" onclick="return confirm('Delete plant?')">Delete</a>
                             </td>
                         </tr>
@@ -216,8 +244,43 @@ if ($view === 'inventory') {
                 </tbody>
             </table>
         </div>
+
+    <?php elseif ($view === 'audit'): ?>
+        <!-- Dedicated Audit View -->
+        <div class="card">
+            <h2>📋 Stock Audit Logs</h2>
+            <p style="color:#64748b;">Recent inventory operations and system activity trail.</p>
+            
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>Log ID / Time</th>
+                        <th>Plant ID</th>
+                        <th>Employee</th>
+                        <th>Action</th>
+                        <th>Quantity Change</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php if ($audit_query && mysqli_num_rows($audit_query) > 0): ?>
+                        <?php while ($a = mysqli_fetch_assoc($audit_query)): ?>
+                            <tr>
+                                <td><?php echo $a['Timestamp'] ?? $a['timestamp'] ?? $a['date'] ?? 'N/A'; ?></td>
+                                <td>#<?php echo $a['Plant_ID'] ?? $a['plant_id'] ?? '-'; ?></td>
+                                <td><?php echo $a['Employee_ID'] ?? $a['employee_id'] ?? $emp_username; ?></td>
+                                <td><span class="badge-action"><?php echo htmlspecialchars($a['Action'] ?? $a['action'] ?? 'UPDATE'); ?></span></td>
+                                <td><strong>+<?php echo $a['Quantity'] ?? $a['quantity'] ?? $a['qty'] ?? 0; ?></strong></td>
+                            </tr>
+                        <?php endwhile; ?>
+                    <?php else: ?>
+                        <tr><td colspan="5" style="text-align:center; color:#64748b;">No audit records found.</td></tr>
+                    <?php endif; ?>
+                </tbody>
+            </table>
+        </div>
+
     <?php else: ?>
-        <!-- Home Dashboard View -->
+        <!-- Clean Home Dashboard View -->
         <div class="card">
             <h2>Welcome, <?php echo htmlspecialchars($emp_username); ?> 👋</h2>
             <p style="color:#64748b;">Manage plant inventory, update stock levels, and track system records from your dashboard.</p>
