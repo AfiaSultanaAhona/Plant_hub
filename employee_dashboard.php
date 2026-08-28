@@ -4,12 +4,16 @@ if (session_status() === PHP_SESSION_NONE) {
 }
 include("DBconnect.php");
 
-// Employee session validation
+// Session validation
 $employee_id = $_SESSION['Employee_id'] ?? $_SESSION['employee_id'] ?? $_SESSION['user_id'] ?? null;
 if (!$employee_id) {
     header("Location: login.php");
     exit;
 }
+
+// Determine user role badge display
+$is_employee = isset($_SESSION['Employee_id']) || isset($_SESSION['employee_id']) || isset($_SESSION['role']) && $_SESSION['role'] === 'employee';
+$role_label = $is_employee ? '👤 Employee Logged In' : '👤 Customer Logged In';
 
 $emp_username = $_SESSION['username'] ?? $_SESSION['Employee_name'] ?? ('emp' . preg_replace('/[^0-9]/', '', (string)$employee_id));
 ?>
@@ -23,6 +27,7 @@ $emp_username = $_SESSION['username'] ?? $_SESSION['Employee_name'] ?? ('emp' . 
         .navbar .logo { font-size: 22px; font-weight: bold; color: #15803d; text-decoration: none; }
         .nav-links { display: flex; align-items: center; gap: 20px; }
         .nav-links a { color: #334155; text-decoration: none; font-weight: 600; font-size: 14px; }
+        .user-badge { background: #e0f2fe; color: #0369a1; padding: 6px 14px; border-radius: 20px; font-weight: 600; font-size: 13px; display: flex; align-items: center; gap: 6px; }
         .nav-links .btn-logout { background: #fee2e2; color: #ef4444; padding: 6px 16px; border-radius: 20px; transition: background 0.2s; }
         .nav-links .btn-logout:hover { background: #fca5a5; }
         
@@ -48,11 +53,12 @@ $emp_username = $_SESSION['username'] ?? $_SESSION['Employee_name'] ?? ('emp' . 
 </head>
 <body>
 
-<!-- Clean Header Bar -->
+<!-- Header Bar showing Logged In Role Status -->
 <div class="navbar">
     <a href="employee_dashboard.php" class="logo">🌱 Plant Hub</a>
     <div class="nav-links">
         <a href="employee_dashboard.php">Home 🏠</a>
+        <div class="user-badge"><?php echo $role_label; ?></div>
         <a href="logout.php" class="btn-logout">Logout</a>
     </div>
 </div>
