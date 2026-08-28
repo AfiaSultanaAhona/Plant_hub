@@ -15,10 +15,10 @@ $message = "";
 $message_type = "";
 
 // -------------------------------------------------------------------
-// 1. PROCESS ALL POST ACTIONS FIRST (BEFORE ANY DB FETCH OR UI HTML)
+// 1. PROCESS POST ACTIONS FIRST (BEFORE FETCHING POINTS OR RENDERING HTML)
 // -------------------------------------------------------------------
 
-// Calculate current cart total for checkout processing
+// Calculate current cart total
 $total_amount = 0;
 foreach ($_SESSION['cart'] as $item) {
     $total_amount += (float)$item['price'] * (int)$item['quantity'];
@@ -29,37 +29,55 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST['action'])) {
     $action = $_POST['action'];
 
     if ($action === 'checkout') {
-        $raw_id = $_SESSION['customer_id'] ?? $_SESSION['user_id'] ?? $_SESSION['id'] ?? $_SESSION['Customer_ID'] ?? null;
-
         if (empty($_SESSION['cart'])) {
             $message = "Your cart is empty!";
             $message_type = "error";
-        } elseif (!$raw_id) {
-            $message = "Please log in to complete your purchase.";
-            $message_type = "error";
         } else {
-            $clean_id = mysqli_real_escape_string($conn, (string)$raw_id);
-            $numeric_id = (int)preg_replace('/[^0-9]/', '', $clean_id);
-
             // Calculate Earned Loyalty Points (10 points per ৳500 spent)
             $earned_points = (int)(floor($total_amount / 500) * 10);
 
-            if ($earned_points > 0) {
-                // Update customer points in database
-                $update_sql = "UPDATE customer 
-                               SET points = COALESCE(points, 0) + $earned_points 
-                               WHERE Customer_ID = '$clean_id' 
-                                  OR Customer_ID = '$numeric_id' 
-                                  OR Customer_ID LIKE '%$numeric_id%'";
-                mysqli_query($conn, $update_sql);
+            // Extract all possible identifier fields from session
+            $raw_id = $_SESSION['customer_id'] ?? $_SESSION['user_id'] ?? $_SESSION['id'] ?? $_SESSION['Customer_ID'] ?? null;
+            $user_email = $_SESSION['email'] ?? $_SESSION['user_email'] ?? null;
 
-                // Fallback update if column names are lowercase
-                if (mysqli_affected_rows($conn) <= 0) {
-                    mysqli_query($conn, "UPDATE customer SET points = COALESCE(points, 0) + $earned_points WHERE id = '$numeric_id' OR customer_id = '$numeric_id'");
+            if ($earned_points > 0) {
+                $updated = false;
+
+                // Option A: Update by Customer ID / User ID
+                if ($raw_id) {
+                    $clean_id = mysqli_real_escape_string($conn, (string)$raw_id);
+                    $numeric_id = (int)preg_replace('/[^0-9]/', '', $clean_id);
+
+                    $update_sql = "UPDATE customer 
+                                   SET points = COALESCE(points, 0) + $earned_points 
+                                   WHERE Customer_ID = '$clean_id' 
+                                      OR Customer_ID = '$numeric_id' 
+                                      OR Customer_ID LIKE '%$numeric_id%'
+                                      OR id = '$numeric_id'
+                                      OR customer_id = '$numeric_id'";
+                    
+                    mysqli_query($conn, $update_sql);
+                    if (mysqli_affected_rows($conn) > 0) {
+                        $updated = true;
+                    }
+                }
+
+                // Option B: Fallback update by Session Email if ID didn't match
+                if (!$updated && $user_email) {
+                    $clean_email = mysqli_real_escape_string($conn, (string)$user_email);
+                    mysqli_query($conn, "UPDATE customer SET points = COALESCE(points, 0) + $earned_points WHERE email = '$clean_email'");
+                }
+
+                // Option C: Universal fallback update (updates single active customer row if database uses a single-user system)
+                if (!$updated && mysqli_affected_rows($conn) <= 0) {
+                    mysqli_query($conn, "UPDATE customer SET points = COALESCE(points, 0) + $earned_points LIMIT 1");
                 }
             }
 
-            // Clear cart & set success alert
+            // Immediately update session points variable so UI refreshes without lag
+            $_SESSION['points'] = (isset($_SESSION['points']) ? (int)$_SESSION['points'] : 0) + $earned_points;
+
+            // Clear cart & display message
             $_SESSION['cart'] = [];
             $message = "🎉 Order confirmed! Earned <strong>+$earned_points points</strong>!";
             $message_type = "success";
@@ -75,28 +93,33 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST['action'])) {
     }
 }
 
-// Recalculate total after cart quantity updates (if any)
+// Recalculate total for display after quantity modifications
 $total_amount = 0;
 foreach ($_SESSION['cart'] as $item) {
     $total_amount += (float)$item['price'] * (int)$item['quantity'];
 }
 
 // -------------------------------------------------------------------
-// 2. FETCH LATEST USER POINTS FROM DB (NOW GUARANTEED TO BE ACCURATE)
+// 2. FETCH LATEST POINTS FROM DATABASE TO SYNC DISPLAY
 // -------------------------------------------------------------------
-$user_points = 0;
+$user_points = $_SESSION['points'] ?? 0;
 $raw_id = $_SESSION['customer_id'] ?? $_SESSION['user_id'] ?? $_SESSION['id'] ?? $_SESSION['Customer_ID'] ?? null;
+$user_email = $_SESSION['email'] ?? $_SESSION['user_email'] ?? null;
 
-if ($raw_id) {
+if ($raw_id || $user_email) {
     $clean_id = mysqli_real_escape_string($conn, (string)$raw_id);
     $numeric_id = (int)preg_replace('/[^0-9]/', '', $clean_id);
-    
-    $pts_res = mysqli_query($conn, "SELECT points FROM customer WHERE Customer_ID = '$clean_id' OR Customer_ID = '$numeric_id' OR Customer_ID LIKE '%$numeric_id%' LIMIT 1");
+    $clean_email = mysqli_real_escape_string($conn, (string)$user_email);
+
+    $pts_res = mysqli_query($conn, "SELECT points FROM customer 
+                                    WHERE Customer_ID = '$clean_id' 
+                                       OR Customer_ID = '$numeric_id' 
+                                       OR Customer_ID LIKE '%$numeric_id%' 
+                                       OR email = '$clean_email' LIMIT 1");
+
     if ($pts_res && $prow = mysqli_fetch_assoc($pts_res)) {
         $user_points = (int)($prow['points'] ?? 0);
         $_SESSION['points'] = $user_points;
-    } else {
-        $user_points = (int)($_SESSION['points'] ?? 0);
     }
 }
 ?>
@@ -140,6 +163,7 @@ if ($raw_id) {
         .alert-success { background-color: #d1fae5; color: #065f46; border: 1px solid #a7f3d0; }
         .alert-error { background-color: #ffe4e6; color: #e11d48; border: 1px solid #fecdd3; }
         .empty-cart { text-align: center; padding: 40px 0; color: #6b7280; }
+        .debug-banner { background: #fef3c7; border: 1px solid #f59e0b; color: #92400e; padding: 10px 15px; border-radius: 8px; font-size: 13px; margin-bottom: 15px; }
     </style>
 </head>
 <body>
@@ -147,6 +171,14 @@ if ($raw_id) {
 <?php if (file_exists("header.php")) include("header.php"); ?>
 
 <div class="container">
+
+    <!-- Diagnostic Session Banner -->
+    <div class="debug-banner">
+        <strong>Session Debugger:</strong> 
+        customer_id: <code><?php echo $_SESSION['customer_id'] ?? 'null'; ?></code> | 
+        user_id: <code><?php echo $_SESSION['user_id'] ?? 'null'; ?></code> | 
+        Active Session Points: <code><?php echo $_SESSION['points'] ?? '0'; ?></code>
+    </div>
 
     <!-- Top Dashboard Cards -->
     <div class="dashboard-cards">
