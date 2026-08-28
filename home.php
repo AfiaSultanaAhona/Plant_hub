@@ -11,24 +11,14 @@ $user_id = $_SESSION['user_id'] ?? $_SESSION['customer_id'] ?? $_SESSION['id'] ?
 $u_id_esc = mysqli_real_escape_string($conn, (string)$user_id);
 $raw_numeric_id = (int)preg_replace('/[^0-9]/', '', (string)$user_id);
 
-// Ensure loyalty_points column exists in tables
-@mysqli_query($conn, "ALTER TABLE customer ADD loyalty_points INT DEFAULT 2512");
-@mysqli_query($conn, "ALTER TABLE users ADD loyalty_points INT DEFAULT 2512");
-
-// Fetch User Name & Loyalty Points
+// Fetch User Name & Loyalty Points — read from `points` column (same as cart.php)
 $user_name = $_SESSION['user_name'] ?? $_SESSION['name'] ?? $_SESSION['Customer_Name'] ?? 'AFIA SULTANA';
-$loyalty_points = 2512;
+$loyalty_points = 0;
 
 $user_q = @mysqli_query($conn, "SELECT * FROM customer WHERE Customer_id = '$raw_numeric_id' OR Customer_ID = '$u_id_esc'");
 if ($user_q && $u_row = mysqli_fetch_assoc($user_q)) {
     $user_name = $u_row['Customer_Name'] ?? $u_row['name'] ?? $u_row['username'] ?? $user_name;
-    $loyalty_points = (int)($u_row['loyalty_points'] ?? 2512);
-} else {
-    $user_q2 = @mysqli_query($conn, "SELECT * FROM users WHERE id = '$raw_numeric_id' OR id = '$u_id_esc' OR user_id = '$u_id_esc'");
-    if ($user_q2 && $u_row2 = mysqli_fetch_assoc($user_q2)) {
-        $user_name = $u_row2['name'] ?? $u_row2['username'] ?? $user_name;
-        $loyalty_points = (int)($u_row2['loyalty_points'] ?? 2512);
-    }
+    $loyalty_points = (int)($u_row['points'] ?? 0);
 }
 ?>
 

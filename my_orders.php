@@ -125,33 +125,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['process_exchange']) 
     }
 }
 
-//loyalty_points column exists in tables
-@mysqli_query($conn, "ALTER TABLE customer ADD loyalty_points INT DEFAULT 2512");
-@mysqli_query($conn, "ALTER TABLE users ADD loyalty_points INT DEFAULT 2512");
-
 // Wallet Balance
 $wallet_balance = (float)($_SESSION['wallet_balance'] ?? 0.00);
-$w1 = mysqli_query($conn, "SELECT wallet_balance FROM customer WHERE Customer_ID = '$raw_numeric_id' OR Customer_ID = '$u_id_esc' OR id = '$raw_numeric_id'");
+$w1 = mysqli_query($conn, "SELECT wallet_balance FROM customer WHERE Customer_ID = '$raw_numeric_id' OR Customer_ID = '$u_id_esc'");
 if ($w1 && $r1 = mysqli_fetch_assoc($w1)) {
     $wallet_balance = (float)($r1['wallet_balance'] ?? 0);
-} else {
-    $w2 = mysqli_query($conn, "SELECT wallet_balance FROM users WHERE id = '$raw_numeric_id' OR id = '$u_id_esc' OR user_id = '$u_id_esc'");
-    if ($w2 && $r2 = mysqli_fetch_assoc($w2)) {
-        $wallet_balance = (float)($r2['wallet_balance'] ?? 0);
-    }
 }
 $_SESSION['wallet_balance'] = $wallet_balance;
 
-// Loyalty Points 
-$user_points = 2512;
-$pts_res = mysqli_query($conn, "SELECT loyalty_points FROM customer WHERE Customer_ID = '$raw_numeric_id' OR Customer_ID = '$u_id_esc'");
+// Loyalty Points — read from `points` column (same column cart.php updates)
+$user_points = 0;
+$pts_res = mysqli_query($conn, "SELECT points FROM customer WHERE Customer_ID = '$raw_numeric_id' OR Customer_ID = '$u_id_esc'");
 if ($pts_res && $pts_row = mysqli_fetch_assoc($pts_res)) {
-    $user_points = (int)($pts_row['loyalty_points'] ?? 2512);
-} else {
-    $pts_res2 = mysqli_query($conn, "SELECT loyalty_points FROM users WHERE id = '$raw_numeric_id' OR id = '$u_id_esc' OR user_id = '$u_id_esc'");
-    if ($pts_res2 && $pts_row2 = mysqli_fetch_assoc($pts_res2)) {
-        $user_points = (int)($pts_row2['loyalty_points'] ?? 2512);
-    }
+    $user_points = (int)($pts_row['points'] ?? 0);
 }
 $_SESSION['user_points'] = $user_points;
 
