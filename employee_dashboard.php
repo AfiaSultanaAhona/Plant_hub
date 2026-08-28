@@ -14,13 +14,12 @@ if (!$employee_id) {
 $role_label = '👤 Employee';
 $emp_username = $_SESSION['username'] ?? $_SESSION['Employee_name'] ?? ('emp' . preg_replace('/[^0-9]/', '', (string)$employee_id));
 
-// 2. Handle Add Stock Action (With PRG Pattern to stop double execution)
+// 2. Handle Add Stock Action (Strict PRG Pattern to prevent double execution)
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'add_stock') {
     $pid = (int)$_POST['plant_id'];
     $add_qty = (int)$_POST['add_quantity'];
     
     if ($add_qty > 0 && $pid >= 0) {
-        // Detect exact primary key and stock column names dynamically
         $pk_col = 'Plant_ID';
         $stock_col = 'Stock_quantity';
         
@@ -37,7 +36,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             }
         }
 
-        // Single atomic update
         $stmt = mysqli_prepare($conn, "UPDATE plant SET `$stock_col` = `$stock_col` + ? WHERE `$pk_col` = ?");
         if ($stmt) {
             mysqli_stmt_bind_param($stmt, "ii", $add_qty, $pid);
@@ -46,7 +44,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         }
     }
 
-    // REDIRECT IMMEDIATELY: Prevents form re-submission / double POST trigger
     header("Location: employee_dashboard.php?view=inventory&msg=added&qty=$add_qty&id=$pid");
     exit;
 }
@@ -72,7 +69,7 @@ if (isset($_GET['action']) && $_GET['action'] === 'delete' && isset($_GET['id'])
     exit;
 }
 
-// 4. Status Messages from Query Parameters
+// 4. Status Messages
 $msg = "";
 if (isset($_GET['msg'])) {
     if ($_GET['msg'] === 'added') {
@@ -85,11 +82,23 @@ if (isset($_GET['msg'])) {
     }
 }
 
-// 5. View Switcher State & Inventory Retrieval
+// 5. Fetch Inventory Data with Category Join Detection
 $view = $_GET['view'] ?? 'dashboard';
 $plants_query = null;
+
 if ($view === 'inventory') {
-    $plants_query = mysqli_query($conn, "SELECT * FROM plant ORDER BY 1 ASC");
+    // Attempt standard query with joined categories if category table exists
+    $sql = "SELECT p.*, COALESCE(c.Category_name, c.category_name, c.Name, c.name, p.Category, p.category, 'General') AS fetched_category 
+            FROM plant p 
+            LEFT JOIN category c ON p.Category_ID = c.Category_ID OR p.category_id = c.category_id OR p.Category = c.Category_ID 
+            ORDER BY 1 ASC";
+            
+    $plants_query = mysqli_query($conn, $sql);
+    
+    // Fallback if JOIN fails due to schema variations
+    if (!$plants_query) {
+        $plants_query = mysqli_query($conn, "SELECT * FROM plant ORDER BY 1 ASC");
+    }
 }
 ?>
 <!DOCTYPE html>
@@ -153,25 +162,28 @@ if ($view === 'inventory') {
                         <th>Category</th>
                         <th>Price</th>
                         <th>Stock Quantity</th>
-                        <th>Add Custom Stock</th>
+                        <th>Add Stock</th>
                         <th>Action</th>
                     </tr>
                 </thead>
                 <tbody>
                     <?php if ($plants_query && mysqli_num_rows($plants_query) > 0): ?>
                         <?php while ($p = mysqli_fetch_assoc($plants_query)): 
-                            // Case-insensitive array access
                             $row = array_change_key_case($p, CASE_LOWER);
                             $pid    = $row['plant_id'] ?? $row['id'] ?? 0;
                             $pname  = $row['plant_name'] ?? $row['name'] ?? '-';
-                            $pcat   = $row['category'] ?? $row['category_name'] ?? '-';
+                            
+                            // Category resolution cascade
+                            $pcat   = $row['fetched_category'] ?? $row['category'] ?? $row['category_name'] ?? $row['category_id'] ?? 'Indoor';
+                            if (is_numeric($pcat)) { $pcat = "Category #" . $pcat; }
+                            
                             $pprice = (float)($row['price'] ?? $row['plant_price'] ?? $row['unit_price'] ?? 0);
                             $pstock = $row['stock_quantity'] ?? $row['stock'] ?? 0;
                         ?>
                         <tr>
                             <td>#<?php echo $pid; ?></td>
                             <td><strong><?php echo htmlspecialchars($pname); ?></strong></td>
-                            <td><?php echo htmlspecialchars($pcat); ?></td>
+                            <td><span style="background:#e2e8f0; padding:3px 8px; border-radius:4px; font-size:12px; font-weight:600;"><?php echo htmlspecialchars($pcat); ?></span></td>
                             <td>৳<?php echo number_format($pprice, 2); ?></td>
                             <td><strong><?php echo $pstock; ?></strong></td>
                             <td>
