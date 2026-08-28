@@ -4,7 +4,7 @@ if (session_status() === PHP_SESSION_NONE) {
 }
 include("DBconnect.php");
 
-// Enable error reporting so database execution errors are displayed
+// Turn off fatal SQL exceptions in PHP 8.1+
 mysqli_report(MYSQLI_REPORT_OFF);
 
 if (!isset($_SESSION['cart'])) {
@@ -12,96 +12,14 @@ if (!isset($_SESSION['cart'])) {
 }
 
 $message = "";
-$debug_error = "";
 
-// -------------------------------------------------------------
-// DYNAMIC COLUMN DETECTION HELPERS
-// -------------------------------------------------------------
-
-function getCustomerColumnName($conn) {
-    static $col_name = null;
-    if ($col_name !== null) return $col_name;
-
-    $res = mysqli_query($conn, "SHOW COLUMNS FROM customer");
-    if ($res) {
-        while ($row = mysqli_fetch_assoc($res)) {
-            $field = $row['Field'];
-            $field_lower = strtolower($field);
-            if (in_array($field_lower, ['customer_id', 'cid', 'id'])) {
-                $col_name = $field;
-                return $col_name;
-            }
-        }
-    }
-    $col_name = 'Customer_ID'; // Fallback default
-    return $col_name;
-}
-
-// -------------------------------------------------------------
-// LOYALTY SYSTEM FUNCTIONS
-// -------------------------------------------------------------
-
-// Active customer ID from session or default test value
-$customer_id = $_SESSION['customer_id'] ?? $_SESSION['user_id'] ?? $_SESSION['Customer_ID'] ?? 'C1';
-
-function getCustomerLoyaltyData($conn, $customer_id) {
-    if (empty($customer_id)) return ['points' => 0, 'tier' => 'Bronze', 'badge' => '🥉'];
-    
-    $col_name = getCustomerColumnName($conn);
-    $cid_numeric = (int)preg_replace('/[^0-9]/', '', (string)$customer_id);
-    $safe_id = mysqli_real_escape_string($conn, (string)$customer_id);
-
-    $sql = "SELECT points FROM customer WHERE `$col_name` = '$safe_id' OR `$col_name` = '$cid_numeric' OR `$col_name` = $cid_numeric LIMIT 1";
-    $res = mysqli_query($conn, $sql);
-    
-    $pts = 0;
-    if ($res && $row = mysqli_fetch_assoc($res)) {
-        $pts = (int)($row['points'] ?? 0);
-    }
-
-    $tier = 'Bronze';
-    $badge = '🥉';
-    if ($pts >= 500) {
-        $tier = 'Gold';
-        $badge = '🥇';
-    } elseif ($pts >= 100) {
-        $tier = 'Silver';
-        $badge = '🥈';
-    }
-
-    return ['points' => $pts, 'tier' => $tier, 'badge' => $badge];
-}
-
-function updateCustomerPoints($conn, $customer_id, $points_delta, &$debug_error) {
-    if (empty($customer_id) || $points_delta == 0) return false;
-    
-    $col_name = getCustomerColumnName($conn);
-    $cid_numeric = (int)preg_replace('/[^0-9]/', '', (string)$customer_id);
-    $safe_id = mysqli_real_escape_string($conn, (string)$customer_id);
-
-    // Dynamic UPDATE query supporting both integer and VARCHAR primary keys
-    $sql = "UPDATE customer 
-            SET points = GREATEST(0, COALESCE(points, 0) + ($points_delta)) 
-            WHERE `$col_name` = '$safe_id' OR `$col_name` = '$cid_numeric' OR `$col_name` = $cid_numeric";
-            
-    $result = mysqli_query($conn, $sql);
-    if (!$result) {
-        $debug_error = "Database Error during points update: " . mysqli_error($conn);
-    } elseif (mysqli_affected_rows($conn) == 0) {
-        $debug_error = "Warning: No customer row found matching Customer ID '$safe_id' or '$cid_numeric' in column '$col_name'.";
-    }
-    return $result;
-}
-
-// -------------------------------------------------------------
-// FORM ACTIONS: Add to Cart & Loyalty Checkout Handler
-// -------------------------------------------------------------
-
+// Handle Add to Cart
 if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST['action']) && $_POST['action'] === 'add_to_cart') {
     $raw_id     = trim($_POST['plant_id'] ?? '');
     $plant_name = trim($_POST['plant_name'] ?? 'Plant');
     $price      = (float)($_POST['plant_price'] ?? 0);
 
+    // Generate clean ID fallback if raw_id is missing
     $plant_id = !empty($raw_id) ? $raw_id : strtolower(preg_replace('/[^a-zA-Z0-9_]/', '', $plant_name));
 
     if (!empty($plant_id)) {
@@ -115,70 +33,14 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST['action']) && $_POST['
                 'quantity' => 1
             ];
         }
-        $message = "🛒 " . htmlspecialchars($plant_name) . " added to cart!";
+        $message = "🛒 " . htmlspecialchars($plant_name) . " added to cart! <a href='cart.php' style='color:#065f46; font-weight:bold;'>Go to Cart</a>";
     }
 }
 
-if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST['action']) && $_POST['action'] === 'process_checkout') {
-    $cart = $_SESSION['cart'] ?? [];
-    $use_points = isset($_POST['redeem_points']) && $_POST['redeem_points'] === '1';
-
-    if (!empty($cart)) {
-        $raw_total = 0.0;
-        foreach ($cart as $item) {
-            $raw_total += ($item['price'] * $item['quantity']);
-        }
-
-        $loyalty = getCustomerLoyaltyData($conn, $customer_id);
-        $current_pts = $loyalty['points'];
-
-        $final_paid_amount = $raw_total;
-        $points_deducted = 0;
-
-        if ($use_points && $current_pts > 0) {
-            if ($current_pts >= $raw_total) {
-                $points_deducted = (int)$raw_total;
-                $final_paid_amount = 0.0;
-            } else {
-                $points_deducted = $current_pts;
-                $final_paid_amount = $raw_total - $current_pts;
-            }
-            updateCustomerPoints($conn, $customer_id, -$points_deducted, $debug_error);
-        }
-
-        // Earn Points: 10 PTS for every ৳500 paid in cash/card
-        $earned_points = 0;
-        if ($final_paid_amount >= 500 && !$use_points) {
-            $earned_points = (int)(floor($final_paid_amount / 500) * 10);
-            updateCustomerPoints($conn, $customer_id, $earned_points, $debug_error);
-        }
-
-        foreach ($cart as $item) {
-            $p_id = $item['id'];
-            $amt = $item['price'] * $item['quantity'];
-            $pay_method = $use_points ? 'Loyalty Points' : 'Cash on Delivery';
-            $safe_cust_id = mysqli_real_escape_string($conn, (string)$customer_id);
-            mysqli_query($conn, "INSERT INTO orders (Customer_ID, plant_id, amount, Payment_Method, order_date) 
-                                 VALUES ('$safe_cust_id', '$p_id', '$amt', '$pay_method', NOW())");
-        }
-
-        $_SESSION['cart'] = [];
-        if (empty($debug_error)) {
-            $message = "🎉 Order placed successfully! Paid: ৳" . number_format($final_paid_amount, 2) . 
-                       " | Earned: +" . $earned_points . " PTS | Redeemed: -" . $points_deducted . " PTS.";
-        }
-    }
-}
-
-// Fetch Live Loyalty Info
-$cust_loyalty = getCustomerLoyaltyData($conn, $customer_id);
 $cart_count = array_sum(array_column($_SESSION['cart'], 'quantity'));
 $selected_category = $_GET['category'] ?? 'All';
 
-// -------------------------------------------------------------
-// CATALOG DATA PREPARATION
-// -------------------------------------------------------------
-
+// 1. Map Suppliers
 $suppliers_map = [];
 $sup_res = mysqli_query($conn, "SELECT * FROM supplier");
 if ($sup_res) {
@@ -192,6 +54,7 @@ if ($sup_res) {
     }
 }
 
+// 2. Map Category IDs to Names
 $category_map = [
     '1' => 'Indoor Plants',
     '2' => 'Outdoor Plants',
@@ -220,6 +83,7 @@ function resolveCategoryName($val, $map) {
 
 $categories = ['All', 'Indoor Plants', 'Outdoor Plants', 'Flowering Plants'];
 
+// 3. Fetch Database Plants
 $all_plants = [];
 $has_outdoor_in_db = false;
 
@@ -240,6 +104,7 @@ if ($res && mysqli_num_rows($res) > 0) {
     }
 }
 
+// Fallback: If no Outdoor Plants in database, add sample ones with care and stock stats
 if (!$has_outdoor_in_db) {
     $all_plants[] = ['Plant_ID' => '901', 'Plant_name' => 'Bougainvillea', 'Unit_price' => 220.00, 'Category_ID' => '2', 'supplier_id' => '1', 'Stock_quantity' => 12, 'sunlight' => 'Full Sun', 'watering' => 'Weekly', 'difficulty' => 'Easy'];
     $all_plants[] = ['Plant_ID' => '902', 'Plant_name' => 'Areca Palm Tree', 'Unit_price' => 450.00, 'Category_ID' => '2', 'supplier_id' => '1', 'Stock_quantity' => 5, 'sunlight' => 'Partial Shade', 'watering' => 'Twice Weekly', 'difficulty' => 'Moderate'];
@@ -257,14 +122,9 @@ if (!$has_outdoor_in_db) {
         body { background-color: #eef7f2; margin: 0; font-family: 'Segoe UI', sans-serif; }
         .container { max-width: 1000px; margin: 40px auto; padding: 0 20px; }
         .header-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        .cart-link { background: #10b981; color: white; padding: 10px 18px; border-radius: 8px; text-decoration: none; font-weight: bold; }
         .alert-success { background-color: #d1fae5; color: #065f46; border: 1px solid #a7f3d0; padding: 14px; border-radius: 8px; margin-bottom: 25px; text-align: center; }
-        .alert-danger { background-color: #fee2e2; color: #991b1b; border: 1px solid #fca5a5; padding: 14px; border-radius: 8px; margin-bottom: 25px; text-align: center; font-weight: bold; }
         
-        .loyalty-banner { background: #ffffff; border: 2px solid #10b981; border-radius: 12px; padding: 18px 24px; margin-bottom: 25px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 4px 12px rgba(0,0,0,0.04); }
-        .loyalty-info h4 { margin: 0 0 4px 0; font-size: 16px; color: #065f46; }
-        .loyalty-info p { margin: 0; font-size: 13px; color: #4b5563; }
-        .tier-pill { background: #d1fae5; color: #047857; padding: 6px 14px; border-radius: 20px; font-weight: 800; font-size: 14px; display: inline-flex; align-items: center; gap: 6px; }
-
         .category-wrapper { margin-bottom: 30px; }
         .category-title { font-size: 14px; font-weight: 700; color: #4b5563; text-transform: uppercase; margin-bottom: 10px; display: block; }
         .category-pills { display: flex; gap: 10px; flex-wrap: wrap; }
@@ -284,12 +144,11 @@ if (!$has_outdoor_in_db) {
 
         .care-info { background: #f8fafc; border: 1px dashed #cbd5e1; padding: 8px 10px; border-radius: 6px; font-size: 11px; color: #475569; margin-bottom: 12px; }
         .care-item { display: flex; justify-content: space-between; margin-bottom: 3px; }
+        .care-item:last-child { margin-bottom: 0; }
 
-        .btn-add, .btn-checkout { width: 100%; background-color: #10b981; color: white; border: none; padding: 12px; border-radius: 8px; font-size: 15px; font-weight: bold; cursor: pointer; }
-        .btn-add:hover, .btn-checkout:hover { background-color: #059669; }
+        .btn-add { width: 100%; background-color: #10b981; color: white; border: none; padding: 12px; border-radius: 8px; font-size: 15px; font-weight: bold; cursor: pointer; }
+        .btn-add:hover { background-color: #059669; }
         .btn-disabled { background-color: #9ca3af; cursor: not-allowed; }
-        
-        .cart-summary-box { background: white; border-radius: 12px; padding: 20px; border: 1px solid #cbd5e1; margin-bottom: 30px; }
     </style>
 </head>
 <body>
@@ -299,57 +158,8 @@ if (!$has_outdoor_in_db) {
 <div class="container">
     <div class="header-bar">
         <h2 style="color: #0a2318; margin: 0;">Available Plants 🌿</h2>
+        <a href="cart.php" class="cart-link">View Cart (<?php echo $cart_count; ?>)</a>
     </div>
-
-    <!-- Live Loyalty & Tier Status Header -->
-    <div class="loyalty-banner">
-        <div class="loyalty-info">
-            <h4>Customer Loyalty Rewards</h4>
-            <p>Earn <strong>10 points</strong> per ৳500 spent | 1 Point = ৳1 discount at checkout</p>
-        </div>
-        <div class="tier-pill">
-            <span><?php echo $cust_loyalty['badge']; ?> <?php echo $cust_loyalty['tier']; ?> Tier</span>
-            <span>•</span>
-            <span><?php echo number_format($cust_loyalty['points']); ?> PTS (৳<?php echo number_format($cust_loyalty['points']); ?>)</span>
-        </div>
-    </div>
-
-    <?php if (!empty($debug_error)): ?>
-        <div class="alert-danger"><?php echo $debug_error; ?></div>
-    <?php endif; ?>
-
-    <?php if (!empty($message)): ?>
-        <div class="alert-success"><?php echo $message; ?></div>
-    <?php endif; ?>
-
-    <!-- Cart & Loyalty Checkout Block -->
-    <?php if (!empty($_SESSION['cart'])): ?>
-        <div class="cart-summary-box">
-            <h3 style="margin-top:0; color:#0f172a;">🛒 Shopping Cart (<?php echo $cart_count; ?> items)</h3>
-            <ul style="padding-left: 20px; font-size: 14px;">
-                <?php 
-                $cart_sum = 0;
-                foreach ($_SESSION['cart'] as $citem) {
-                    $item_tot = $citem['price'] * $citem['quantity'];
-                    $cart_sum += $item_tot;
-                    echo "<li>" . htmlspecialchars($citem['name']) . " x " . $citem['quantity'] . " - <strong>৳" . number_format($item_tot, 2) . "</strong></li>";
-                }
-                ?>
-            </ul>
-            <p style="font-size: 16px; font-weight: bold;">Subtotal: ৳<?php echo number_format($cart_sum, 2); ?></p>
-            
-            <form method="POST" action="shop.php?category=<?php echo urlencode($selected_category); ?>">
-                <input type="hidden" name="action" value="process_checkout">
-                <?php if ($cust_loyalty['points'] > 0): ?>
-                    <label style="display: block; margin-bottom: 12px; font-weight: bold; color: #047857;">
-                        <input type="checkbox" name="redeem_points" value="1"> 
-                        Redeem Available Points (Use up to <?php echo $cust_loyalty['points']; ?> PTS / ৳<?php echo $cust_loyalty['points']; ?> off)
-                    </label>
-                <?php endif; ?>
-                <button type="submit" class="btn-checkout">Complete Checkout & Earn Points 💳</button>
-            </form>
-        </div>
-    <?php endif; ?>
 
     <!-- Category Filter Bar -->
     <div class="category-wrapper">
@@ -364,18 +174,26 @@ if (!$has_outdoor_in_db) {
         </div>
     </div>
 
+    <?php if (!empty($message)): ?>
+        <div class="alert-success"><?php echo $message; ?></div>
+    <?php endif; ?>
+
     <div class="plant-grid">
         <?php
+        $count_displayed = 0;
+
         foreach ($all_plants as $row) {
             $row_lower = array_change_key_case($row, CASE_LOWER);
             
             $plant_id   = $row_lower['plant_id'] ?? $row_lower['id'] ?? array_values($row)[0] ?? null;
             $plant_name = $row_lower['plant_name'] ?? $row_lower['name'] ?? 'Plant';
             
+            // Fallback for missing plant_id in database loop
             if (empty($plant_id)) {
                 $plant_id = strtolower(preg_replace('/[^a-zA-Z0-9_]/', '', $plant_name));
             }
 
+            // Resolve Category Name
             $plant_cat = 'General';
             foreach ($row as $k => $v) {
                 $kl = strtolower($k);
@@ -385,10 +203,14 @@ if (!$has_outdoor_in_db) {
                 }
             }
 
+            // Category Filtering Logic
             if ($selected_category !== 'All' && strtolower(trim($plant_cat)) !== strtolower(trim($selected_category))) {
                 continue;
             }
 
+            $count_displayed++;
+
+            // Resolve Supplier
             $sup_id = $row_lower['supplier_id'] ?? $row_lower['supplier'] ?? null;
             $supplier_name = 'GreenFlora Nursery';
             if ($sup_id && isset($suppliers_map[$sup_id])) {
@@ -397,7 +219,10 @@ if (!$has_outdoor_in_db) {
                 $supplier_name = $row_lower['supplier_name'];
             }
 
+            // Resolve Price
             $raw_price = $row_lower['unit_price'] ?? $row_lower['price'] ?? $row_lower['amount'] ?? 100;
+
+            // Resolve Stock & Care Details using DB column 'Stock_quantity'
             $stock = isset($row_lower['stock_quantity']) ? (int)$row_lower['stock_quantity'] : (int)($row_lower['stock'] ?? 0);
             $sunlight = htmlspecialchars($row_lower['sunlight'] ?? 'Indirect Light');
             $watering = htmlspecialchars($row_lower['watering'] ?? 'Weekly');
@@ -414,8 +239,10 @@ if (!$has_outdoor_in_db) {
                     <h3 style="margin: 5px 0; color: #143d2b;">' . htmlspecialchars($plant_name) . '</h3>
                     <div class="price">৳' . number_format((float)$raw_price, 2) . '</div>
                     
+                    <!-- Live Stock Level -->
                     <span class="stock-badge ' . $stock_class . '">' . $stock_label . '</span>
 
+                    <!-- Plant Care Details -->
                     <div class="care-info">
                         <div class="care-item"><span>☀️ Light:</span> <strong>' . $sunlight . '</strong></div>
                         <div class="care-item"><span>💧 Water:</span> <strong>' . $watering . '</strong></div>

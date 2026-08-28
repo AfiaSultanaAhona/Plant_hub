@@ -30,8 +30,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
 
         if ($cust_result && mysqli_num_rows($cust_result) > 0) {
             $user = mysqli_fetch_assoc($cust_result);
-            // Inside your login validation block:
-            $_SESSION['customer_id'] = $row['Customer_ID'];
+            $_SESSION['user_id']   = "C" . $user['Customer_id'];
             $_SESSION['user_name'] = $user['Customer_name'];
             $_SESSION['role']      = 'customer';
             
