@@ -13,7 +13,7 @@ if (!$employee_id) {
 
 // Determine user role badge display
 $is_employee = isset($_SESSION['Employee_id']) || isset($_SESSION['employee_id']) || isset($_SESSION['role']) && $_SESSION['role'] === 'employee';
-$role_label = $is_employee ? '👤 Employee Logged In' : '👤 Customer Logged In';
+$role_label = $is_employee ? '👤 Employee' : '👤 Customer';
 
 $emp_username = $_SESSION['username'] ?? $_SESSION['Employee_name'] ?? ('emp' . preg_replace('/[^0-9]/', '', (string)$employee_id));
 ?>
