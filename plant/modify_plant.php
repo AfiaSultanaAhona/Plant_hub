@@ -1,57 +1,53 @@
 <?php
-require_once("../check_login.php");
-require_once("../DBconnect.php");
+if (session_status() === PHP_SESSION_NONE) { session_start(); }
+include("DBconnect.php");
 
-$id = $_GET['id'];
-$sql = "SELECT * FROM Plant WHERE Plant_ID = '$id'";
-$result = mysqli_query($conn, $sql);
-$row = mysqli_fetch_assoc($result);
+$plant_id = (int)($_GET['id'] ?? $_POST['plant_id'] ?? 0);
+$res = mysqli_query($conn, "SELECT * FROM plant WHERE Plant_ID = $plant_id");
+$plant = mysqli_fetch_assoc($res);
 
-$cat_sql = "SELECT * FROM Category";
-$cat_result = mysqli_query($conn, $cat_sql);
+if (!$plant) { die("Plant not found."); }
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $name  = mysqli_real_escape_string($conn, $_POST['plant_name']);
+    $cat   = mysqli_real_escape_string($conn, $_POST['category']);
+    $price = (float)$_POST['price'];
+    $stock = (int)$_POST['stock_quantity'];
+
+    $sql = "UPDATE plant SET Plant_name='$name', Category='$cat', Price='$price', Stock_quantity='$stock' WHERE Plant_ID=$plant_id";
+    if (mysqli_query($conn, $sql)) {
+        logEmployeeAction($conn, 'PLANT_UPDATE', "Updated plant #$plant_id ($name) - New Stock: $stock, Price: ৳$price", $plant_id);
+        header("Location: show_plant.php?msg=updated");
+        exit;
+    }
+}
 ?>
-
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Edit Plant</title>
+    <title>Edit Plant - Plant Hub</title>
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; background: #f8fafc; padding: 20px; }
+        .card { max-width: 500px; margin: 30px auto; background: white; padding: 25px; border-radius: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.05); }
+        .form-control { width: 100%; padding: 10px; margin: 8px 0 16px; border: 1px solid #cbd5e1; border-radius: 6px; box-sizing: border-box; }
+        .btn { background: #0284c7; color: white; border: none; padding: 12px; width: 100%; border-radius: 6px; font-weight: bold; cursor: pointer; }
+    </style>
 </head>
 <body>
-
-    <h2>Edit Plant</h2>
-
-    <form action="update_plant.php" method="post">
-        <input type="hidden" name="plant_id" value="<?php echo $row['Plant_ID']; ?>">
-
-        Plant Name: 
-        <input type="text" name="plant_name" value="<?php echo $row['Plant_name']; ?>" required><br><br>
-
-        Unit Price: 
-        <input type="number" step="0.01" name="unit_price" value="<?php echo $row['Unit_price']; ?>" required><br><br>
-
-        Stock Quantity: 
-        <input type="number" name="stock_quantity" value="<?php echo $row['Stock_quantity']; ?>" required><br><br>
-
-        Low Stock Alert Level: 
-        <input type="number" name="low_stock" value="<?php echo $row['Low_stock_level']; ?>" required><br><br>
-
-        Care Information: <br>
-        <textarea name="care_info" rows="3" cols="30"><?php echo $row['Care_info']; ?></textarea><br><br>
-
-        Category:
-        <select name="category_id" required>
-            <?php while ($cat_row = mysqli_fetch_assoc($cat_result)) { ?>
-                <option value="<?php echo $cat_row['Category_ID']; ?>" <?php if($row['Category_ID'] == $cat_row['Category_ID']) echo 'selected'; ?>>
-                    <?php echo $cat_row['Category_name']; ?>
-                </option>
-            <?php } ?>
-        </select><br><br>
-
-        <input type="submit" value="Update Plant">
+<div class="card">
+    <h2>✏️ Modify Plant #<?php echo $plant_id; ?></h2>
+    <form method="POST">
+        <input type="hidden" name="plant_id" value="<?php echo $plant_id; ?>">
+        <label>Plant Name</label>
+        <input type="text" name="plant_name" class="form-control" value="<?php echo htmlspecialchars($plant['Plant_name']); ?>" required>
+        <label>Category</label>
+        <input type="text" name="category" class="form-control" value="<?php echo htmlspecialchars($plant['Category'] ?? ''); ?>">
+        <label>Price (৳)</label>
+        <input type="number" step="0.01" name="price" class="form-control" value="<?php echo $plant['Price']; ?>" required>
+        <label>Stock Quantity</label>
+        <input type="number" name="stock_quantity" class="form-control" value="<?php echo $plant['Stock_quantity']; ?>" required>
+        <button type="submit" class="btn">Update Plant Details</button>
     </form>
-
-    <br>
-    <a href="show_plant.php">Cancel</a>
-
+</div>
 </body>
 </html>
