@@ -1,4 +1,7 @@
 <?php
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
 include("DBconnect.php");
 
 $message = "";
@@ -14,7 +17,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
 
     if (!empty($role) && !empty($name) && !empty($email) && !empty($password)) {
         if ($role === "customer") {
-            // Set points to 0 by default for new customers
+            // Explicitly set initial points to 0 for new customers
             $sql = "INSERT INTO customer (Customer_name, Email, Password, points) VALUES ('$name', '$email', '$password', 0)";
             
             if (mysqli_query($conn, $sql)) {
@@ -22,6 +25,10 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                 $assigned_id = "C" . $new_id;
                 $user_role = "Customer";
                 $message_type = "success";
+
+                // Clear any leftover session data from old test logins
+                unset($_SESSION['customer_id']);
+                unset($_SESSION['points']);
             } else {
                 $message = "Error creating account: " . mysqli_error($conn);
                 $message_type = "error";
