@@ -17,6 +17,21 @@ if (!$conn) {
     die("Database Connection Failed: " . mysqli_connect_error());
 }
 
+// Auto-create audit_logs table for employee tracking
+@mysqli_query($conn, "CREATE TABLE IF NOT EXISTS `audit_logs` (
+    `log_id` INT AUTO_INCREMENT PRIMARY KEY,
+    `employee_id` INT NOT NULL,
+    `action_type` VARCHAR(50) NOT NULL,
+    `description` TEXT,
+    `reference_id` INT DEFAULT NULL,
+    `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    KEY `idx_employee` (`employee_id`),
+    KEY `idx_action` (`action_type`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci");
+
+// Ensure purchase_transaction has Employee_ID column
+@mysqli_query($conn, "ALTER TABLE `purchase_transaction` ADD COLUMN `Employee_ID` INT DEFAULT NULL");
+
 /**
  * Helper Function: Process & Award Loyalty Points
  * Earns 10 points for every complete ৳500 spent per order.

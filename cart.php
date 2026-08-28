@@ -65,11 +65,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         $payment_method = $_POST['payment_method'] ?? 'Payment on Delivery';
         $required_points = (int)ceil($total_amount);
 
+        // Get Employee_ID from session for audit trail (if employee is logged in)
+        $checkout_employee_id = $_SESSION['employee_id'] ?? null;
+
         if ($payment_method === 'Loyalty Points' && $user_points < $required_points) {
             $message = "Insufficient loyalty points balance! You need $required_points points.";
             $message_type = "error";
         } else {
             // A. Insert Orders into DB
+            $order_ids = [];
             foreach ($_SESSION['cart'] as $item) {
                 $pid = mysqli_real_escape_string($conn, $item['id']);
                 $amt = (float)$item['price'] * (int)$item['quantity'];
@@ -78,6 +82,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 
                 mysqli_query($conn, "INSERT INTO orders (Customer_ID, plant_id, amount, Payment_Method, order_date) 
                                      VALUES ('$cust', '$pid', '$amt', '$pay_m', NOW())");
+                $order_ids[] = mysqli_insert_id($conn);
             }
 
             // B. Earn Points (+10 PTS per $500 spent) OR Spend Points
@@ -97,6 +102,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             } else {
                 // Fallback update for active session without explicit numeric ID
                 mysqli_query($conn, "UPDATE customer SET points = $new_points ORDER BY Customer_ID DESC LIMIT 1");
+            }
+
+            // D. Log employee action for audit trail (if employee is processing the order)
+            if ($checkout_employee_id) {
+                $order_id_list = implode(', ', $order_ids);
+                logEmployeeAction($conn, $checkout_employee_id, 'SALE', "Processed cart checkout: Orders #$order_id_list, Total ৳" . number_format($total_amount, 2) . " via $payment_method", $order_ids[0] ?? null);
             }
 
             $_SESSION['cart'] = [];

@@ -48,9 +48,10 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
 
         } else if ($emp_result && mysqli_num_rows($emp_result) > 0) {
             $user = mysqli_fetch_assoc($emp_result);
-            $_SESSION['user_id']   = "E" . $user['Employee_id'];
-            $_SESSION['user_name'] = $user['Employee_name'];
-            $_SESSION['role']      = 'employee';
+            $_SESSION['user_id']     = "E" . $user['Employee_ID'];
+            $_SESSION['employee_id'] = $user['Employee_ID']; // Raw numeric ID for check_login.php and audit trail
+            $_SESSION['user_name']   = $user['Employee_name'];
+            $_SESSION['role']        = 'employee';
 
             // Save to localStorage before redirecting
             echo "<script>
