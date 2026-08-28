@@ -20,7 +20,7 @@ $emp_username = $_SESSION['username'] ?? $_SESSION['Employee_name'] ?? ('emp' . 
 $msg = "";
 if (isset($_GET['action']) && $_GET['action'] === 'delete' && isset($_GET['id'])) {
     $del_id = (int)$_GET['id'];
-    if (mysqli_query($conn, "DELETE FROM plant WHERE Plant_ID = $del_id")) {
+    if (mysqli_query($conn, "DELETE FROM plant WHERE Plant_ID = $del_id OR plant_id = $del_id")) {
         $msg = "Plant #$del_id successfully removed.";
     }
 }
@@ -31,7 +31,7 @@ $view = $_GET['view'] ?? 'dashboard';
 // 5. Fetch Inventory Data if Inventory view is active
 $plants_query = null;
 if ($view === 'inventory') {
-    $plants_query = mysqli_query($conn, "SELECT * FROM plant ORDER BY Plant_ID DESC");
+    $plants_query = mysqli_query($conn, "SELECT * FROM plant ORDER BY 1 DESC");
 }
 ?>
 <!DOCTYPE html>
@@ -117,15 +117,22 @@ if ($view === 'inventory') {
                 </thead>
                 <tbody>
                     <?php if ($plants_query && mysqli_num_rows($plants_query) > 0): ?>
-                        <?php while ($p = mysqli_fetch_assoc($plants_query)): ?>
+                        <?php while ($p = mysqli_fetch_assoc($plants_query)): 
+                            // Flexible column mappings for case variations
+                            $pid    = $p['Plant_ID'] ?? $p['plant_id'] ?? $p['ID'] ?? $p['id'];
+                            $pname  = $p['Plant_name'] ?? $p['plant_name'] ?? $p['Name'] ?? $p['name'] ?? '-';
+                            $pcat   = $p['Category'] ?? $p['category'] ?? '-';
+                            $pprice = (float)($p['Price'] ?? $p['price'] ?? $p['unit_price'] ?? 0);
+                            $pstock = $p['Stock_quantity'] ?? $p['stock_quantity'] ?? $p['stock'] ?? 0;
+                        ?>
                         <tr>
-                            <td>#<?php echo $p['Plant_ID']; ?></td>
-                            <td><strong><?php echo htmlspecialchars($p['Plant_name']); ?></strong></td>
-                            <td><?php echo htmlspecialchars($p['Category'] ?? '-'); ?></td>
-                            <td>৳<?php echo number_format($p['Price'], 2); ?></td>
-                            <td><?php echo $p['Stock_quantity']; ?></td>
+                            <td>#<?php echo $pid; ?></td>
+                            <td><strong><?php echo htmlspecialchars($pname); ?></strong></td>
+                            <td><?php echo htmlspecialchars($pcat); ?></td>
+                            <td>৳<?php echo number_format($pprice, 2); ?></td>
+                            <td><?php echo $pstock; ?></td>
                             <td>
-                                <a href="employee_dashboard.php?view=inventory&action=delete&id=<?php echo $p['Plant_ID']; ?>" class="btn-del" onclick="return confirm('Remove plant?')">Delete</a>
+                                <a href="employee_dashboard.php?view=inventory&action=delete&id=<?php echo $pid; ?>" class="btn-del" onclick="return confirm('Remove plant?')">Delete</a>
                             </td>
                         </tr>
                         <?php endwhile; ?>
