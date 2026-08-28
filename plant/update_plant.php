@@ -1,31 +1,25 @@
 <?php
-require_once("../check_login.php");
-require_once("../DBconnect.php");
+if (session_status() === PHP_SESSION_NONE) { session_start(); }
+include("DBconnect.php");
 
-if (isset($_POST['plant_id']) && isset($_POST['plant_name'])) {
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $plant_id = (int)($_POST['plant_id'] ?? 0);
+    $pname    = mysqli_real_escape_string($conn, $_POST['plant_name'] ?? '');
+    $cat      = mysqli_real_escape_string($conn, $_POST['category'] ?? '');
+    $price    = (float)($_POST['price'] ?? 0);
+    $stock    = (int)($_POST['stock_quantity'] ?? 0);
 
-    $id = $_POST['plant_id'];
-    $name = $_POST['plant_name'];
-    $price = $_POST['unit_price'];
-    $stock = $_POST['stock_quantity'];
-    $low_stock = $_POST['low_stock'];
-    $care = $_POST['care_info'];
-    $cat_id = $_POST['category_id'];
-
-    $sql = "UPDATE Plant SET 
-            Plant_name = '$name', 
-            Unit_price = '$price', 
-            Stock_quantity = '$stock', 
-            Low_stock_level = '$low_stock', 
-            Care_info = '$care', 
-            Category_ID = '$cat_id' 
-            WHERE Plant_ID = '$id'";
-
-    if (mysqli_query($conn, $sql)) {
-        header("Location: show_plant.php");
-        exit();
-    } else {
-        echo "Error: " . mysqli_error($conn);
+    if ($plant_id > 0) {
+        $sql = "UPDATE plant SET Plant_name='$pname', Category='$cat', Price='$price', Stock_quantity='$stock' WHERE Plant_ID=$plant_id";
+        if (mysqli_query($conn, $sql)) {
+            logEmployeeAction($conn, 'PLANT_UPDATE', "Updated plant #$plant_id ($pname) - Stock: $stock, Price: ৳$price", $plant_id);
+            header("Location: show_plant.php?msg=updated");
+            exit;
+        } else {
+            die("Update Error: " . mysqli_error($conn));
+        }
     }
 }
+header("Location: show_plant.php");
+exit;
 ?>

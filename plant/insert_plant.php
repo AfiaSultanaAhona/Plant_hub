@@ -1,25 +1,25 @@
 <?php
-require_once("../check_login.php");
-require_once("../DBconnect.php");
+if (session_status() === PHP_SESSION_NONE) { session_start(); }
+include("DBconnect.php");
 
-if (isset($_POST['plant_id']) && isset($_POST['plant_name'])) {
-    
-    $id = $_POST['plant_id'];
-    $name = $_POST['plant_name'];
-    $price = $_POST['unit_price'];
-    $stock = $_POST['stock_quantity'];
-    $low_stock = $_POST['low_stock'];
-    $care = $_POST['care_info'];
-    $cat_id = $_POST['category_id'];
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $pname = mysqli_real_escape_string($conn, $_POST['plant_name'] ?? '');
+    $cat   = mysqli_real_escape_string($conn, $_POST['category'] ?? '');
+    $price = (float)($_POST['price'] ?? 0);
+    $stock = (int)($_POST['stock_quantity'] ?? 0);
 
-    $sql = "INSERT INTO Plant (Plant_ID, Plant_name, Unit_price, Stock_quantity, Low_stock_level, Care_info, Category_ID) 
-            VALUES ('$id', '$name', '$price', '$stock', '$low_stock', '$care', '$cat_id')";
-
-    if (mysqli_query($conn, $sql)) {
-        header("Location: show_plant.php");
-        exit();
-    } else {
-        echo "Error: " . mysqli_error($conn);
+    if (!empty($pname) && $price > 0) {
+        $sql = "INSERT INTO plant (Plant_name, Category, Price, Stock_quantity) VALUES ('$pname', '$cat', '$price', '$stock')";
+        if (mysqli_query($conn, $sql)) {
+            $plant_id = mysqli_insert_id($conn);
+            logEmployeeAction($conn, 'PLANT_ADD', "Added plant '$pname' (Initial Stock: $stock, Price: ৳$price)", $plant_id);
+            header("Location: show_plant.php?msg=added");
+            exit;
+        } else {
+            die("Database Error: " . mysqli_error($conn));
+        }
     }
 }
+header("Location: add_plant.php");
+exit;
 ?>

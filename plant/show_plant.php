@@ -1,67 +1,61 @@
 <?php
-require_once("../check_login.php");
-require_once("../DBconnect.php");
+if (session_status() === PHP_SESSION_NONE) { session_start(); }
+include("DBconnect.php");
 
-$base_path = "../";
-$page_title = "Manage Plants";
-include("../header.php");
-
-$sql = "SELECT Plant.*, Category.Category_name 
-        FROM Plant 
-        LEFT JOIN Category ON Plant.Category_ID = Category.Category_ID";
-$result = mysqli_query($conn, $sql);
+$query = "SELECT * FROM plant ORDER BY Plant_ID DESC";
+$result = mysqli_query($conn, $query);
 ?>
-
-<div class="d-flex justify-content-between align-items-center mb-4">
-    <div>
-        <h2 class="fw-bold text-success m-0">Plant Inventory</h2>
-        <p class="text-muted mb-0">View stock levels and pricing</p>
-    </div>
-    <div>
-        <a href="../home.php" class="btn btn-outline-secondary me-2"><i class="bi bi-arrow-left"></i> Dashboard</a>
-        <a href="add_plant.php" class="btn btn-success"><i class="bi bi-plus-circle me-1"></i> Add New Plant</a>
-    </div>
-</div>
-
-<div class="card border-0 shadow-sm">
-    <div class="card-body p-0">
-        <div class="table-responsive">
-            <table class="table table-hover align-middle mb-0">
-                <thead class="table-success">
-                    <tr>
-                        <th>ID</th>
-                        <th>Plant Name</th>
-                        <th>Category</th>
-                        <th>Unit Price</th>
-                        <th>Stock Quantity</th>
-                        <th>Status</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <?php if ($result && mysqli_num_rows($result) > 0) { ?>
-                        <?php while ($row = mysqli_fetch_assoc($result)) { ?>
-                            <tr>
-                                <td><strong>#<?php echo $row['Plant_ID']; ?></strong></td>
-                                <td><?php echo $row['Plant_name']; ?></td>
-                                <td><span class="badge bg-secondary"><?php echo $row['Category_name'] ?? 'Uncategorized'; ?></span></td>
-                                <td>৳<?php echo number_format($row['Unit_price'], 2); ?></td>
-                                <td><?php echo $row['Stock_quantity']; ?> units</td>
-                                <td>
-                                    <?php if ($row['Stock_quantity'] < 5) { ?>
-                                        <span class="badge bg-danger"><i class="bi bi-exclamation-triangle-fill me-1"></i> Low Stock</span>
-                                    <?php } else { ?>
-                                        <span class="badge bg-success">In Stock</span>
-                                    <?php } ?>
-                                </td>
-                            </tr>
-                        <?php } ?>
-                    <?php } else { ?>
-                        <tr><td colspan="6" class="text-center py-4 text-muted">No plants registered yet.</td></tr>
-                    <?php } ?>
-                </tbody>
-            </table>
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Plant Catalog - Plant Hub</title>
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; background: #f8fafc; margin: 0; padding: 20px; }
+        .container { max-width: 1000px; margin: 0 auto; background: white; padding: 25px; border-radius: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.05); }
+        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        .btn { background: #10b981; color: white; padding: 8px 14px; text-decoration: none; border-radius: 6px; font-weight: bold; font-size: 14px; }
+        .btn-edit { background: #0284c7; }
+        .btn-del { background: #e11d48; }
+        table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+        th, td { padding: 12px; border-bottom: 1px solid #e2e8f0; text-align: left; }
+        th { background: #f1f5f9; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="header">
+        <h2>🌿 Plant Inventory Management</h2>
+        <div>
+            <a href="add_plant.php" class="btn">➕ Add New Plant</a>
+            <a href="employee_dashboard.php" class="btn" style="background:#64748b;">Dashboard</a>
         </div>
     </div>
+    <table>
+        <thead>
+            <tr>
+                <th>ID</th><th>Plant Name</th><th>Category</th><th>Price</th><th>Stock</th><th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            <?php if ($result && mysqli_num_rows($result) > 0): ?>
+                <?php while ($row = mysqli_fetch_assoc($result)): ?>
+                <tr>
+                    <td>#<?php echo $row['Plant_ID']; ?></td>
+                    <td><strong><?php echo htmlspecialchars($row['Plant_name']); ?></strong></td>
+                    <td><?php echo htmlspecialchars($row['Category'] ?? 'N/A'); ?></td>
+                    <td>৳<?php echo number_format($row['Price'], 2); ?></td>
+                    <td><?php echo $row['Stock_quantity']; ?></td>
+                    <td>
+                        <a href="modify_plant.php?id=<?php echo $row['Plant_ID']; ?>" class="btn btn-edit">Edit</a>
+                        <a href="delete_plant.php?id=<?php echo $row['Plant_ID']; ?>" class="btn btn-del" onclick="return confirm('Delete this plant?')">Delete</a>
+                    </td>
+                </tr>
+                <?php endwhile; ?>
+            <?php else: ?>
+                <tr><td colspan="6" style="text-align:center; color:#64748b;">No plants found in stock.</td></tr>
+            <?php endif; ?>
+        </tbody>
+    </table>
 </div>
-
-<?php include("../footer.php"); ?>
+</body>
+</html>

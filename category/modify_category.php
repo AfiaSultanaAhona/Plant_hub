@@ -1,35 +1,33 @@
 <?php
-require_once("../check_login.php");
-require_once("../DBconnect.php");
+if (session_status() === PHP_SESSION_NONE) { session_start(); }
+include("DBconnect.php");
 
-$id = $_GET['id'];
-$sql = "SELECT * FROM Category WHERE Category_ID = '$id'";
-$result = mysqli_query($conn, $sql);
-$row = mysqli_fetch_assoc($result);
+$cat_id = (int)($_GET['id'] ?? 0);
+$res = mysqli_query($conn, "SELECT * FROM category WHERE Category_ID = $cat_id");
+$cat = mysqli_fetch_assoc($res);
+
+if (!$cat) { die("Category not found."); }
 ?>
-
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Edit Category</title>
+    <title>Edit Category - Plant Hub</title>
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; background: #f8fafc; padding: 20px; }
+        .card { max-width: 450px; margin: 30px auto; background: white; padding: 25px; border-radius: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.05); }
+        .form-control { width: 100%; padding: 10px; margin: 8px 0 16px; border: 1px solid #cbd5e1; border-radius: 6px; box-sizing: border-box; }
+        .btn { background: #0284c7; color: white; border: none; padding: 12px; width: 100%; border-radius: 6px; font-weight: bold; cursor: pointer; }
+    </style>
 </head>
 <body>
-
-    <h2>Edit Category</h2>
-
-    <form action="update_category.php" method="post">
-        <!-- Hidden input field keeps track of Category_ID during update -->
-        <input type="hidden" name="category_id" value="<?php echo $row['Category_ID']; ?>">
-
-        Category Name: 
-        <input type="text" name="category_name" value="<?php echo $row['Category_name']; ?>" required>
-        <br><br>
-
-        <input type="submit" value="Update Category">
+<div class="card">
+    <h2>✏️ Modify Category #<?php echo $cat_id; ?></h2>
+    <form action="update_category.php" method="POST">
+        <input type="hidden" name="category_id" value="<?php echo $cat_id; ?>">
+        <label>Category Name *</label>
+        <input type="text" name="category_name" class="form-control" value="<?php echo htmlspecialchars($cat['Category_name'] ?? ''); ?>" required>
+        <button type="submit" class="btn">Update Category Name</button>
     </form>
-
-    <br>
-    <a href="show_category.php">Cancel</a>
-
+</div>
 </body>
 </html>

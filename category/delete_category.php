@@ -1,18 +1,23 @@
 <?php
-require_once("../check_login.php");
-require_once("../DBconnect.php");
+if (session_status() === PHP_SESSION_NONE) { session_start(); }
+include("DBconnect.php");
 
-if (isset($_GET['id'])) {
+$cat_id = (int)($_GET['id'] ?? $_POST['category_id'] ?? 0);
 
-    $id = $_GET['id'];
+if ($cat_id > 0) {
+    $res = mysqli_query($conn, "SELECT Category_name FROM category WHERE Category_ID = $cat_id");
+    $c = mysqli_fetch_assoc($res);
+    $cname = $c['Category_name'] ?? "ID #$cat_id";
 
-    $sql = "DELETE FROM Category WHERE Category_ID = '$id'";
-
+    $sql = "DELETE FROM category WHERE Category_ID = $cat_id";
     if (mysqli_query($conn, $sql)) {
-        header("Location: show_category.php");
-        exit();
+        logEmployeeAction($conn, 'CATEGORY_DELETE', "Deleted category '$cname' (ID: #$cat_id)", $cat_id);
+        header("Location: show_category.php?msg=deleted");
+        exit;
     } else {
         echo "Error deleting category: " . mysqli_error($conn);
     }
+} else {
+    header("Location: show_category.php");
 }
 ?>
