@@ -16,22 +16,38 @@ $is_employee = isset($_SESSION['Employee_id']) || isset($_SESSION['employee_id']
 $role_label = $is_employee ? '👤 Employee' : '👤 Customer';
 $emp_username = $_SESSION['username'] ?? $_SESSION['Employee_name'] ?? ('emp' . preg_replace('/[^0-9]/', '', (string)$employee_id));
 
-// 3. Handle In-Page Plant Deletion
 $msg = "";
-if (isset($_GET['action']) && $_GET['action'] === 'delete' && isset($_GET['id'])) {
-    $del_id = (int)$_GET['id'];
-    if (mysqli_query($conn, "DELETE FROM plant WHERE Plant_ID = $del_id OR plant_id = $del_id")) {
-        $msg = "Plant #$del_id successfully removed.";
+
+// 3. Handle Add Stock Action
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'add_stock') {
+    $pid = (int)$_POST['plant_id'];
+    $add_qty = (int)$_POST['add_quantity'];
+    if ($add_qty > 0) {
+        $update_sql = "UPDATE plant SET 
+            Stock_quantity = COALESCE(Stock_quantity, stock_quantity, 0) + $add_qty,
+            stock_quantity = COALESCE(stock_quantity, Stock_quantity, 0) + $add_qty 
+            WHERE Plant_ID = $pid OR plant_id = $pid";
+        if (mysqli_query($conn, $update_sql)) {
+            $msg = "✅ Added $add_qty stock to Plant #$pid.";
+        }
     }
 }
 
-// 4. View Switcher State
+// 4. Handle Delete Action
+if (isset($_GET['action']) && $_GET['action'] === 'delete' && isset($_GET['id'])) {
+    $del_id = (int)$_GET['id'];
+    if (mysqli_query($conn, "DELETE FROM plant WHERE Plant_ID = $del_id OR plant_id = $del_id")) {
+        $msg = "🗑️ Plant #$del_id successfully deleted.";
+    }
+}
+
+// 5. View Switcher State
 $view = $_GET['view'] ?? 'dashboard';
 
-// 5. Fetch Inventory Data if Inventory view is active
+// 6. Fetch Inventory Data (Sorted ASC by Primary Key)
 $plants_query = null;
 if ($view === 'inventory') {
-    $plants_query = mysqli_query($conn, "SELECT * FROM plant ORDER BY 1 DESC");
+    $plants_query = mysqli_query($conn, "SELECT * FROM plant ORDER BY 1 ASC");
 }
 ?>
 <!DOCTYPE html>
@@ -47,7 +63,6 @@ if ($view === 'inventory') {
         .nav-links a.active { color: #15803d; border-bottom: 2px solid #15803d; padding-bottom: 4px; }
         .user-badge { background: #e0f2fe; color: #0369a1; padding: 6px 14px; border-radius: 20px; font-weight: 600; font-size: 13px; }
         .nav-links .btn-logout { background: #fee2e2; color: #ef4444; padding: 6px 16px; border-radius: 20px; text-decoration: none; }
-        .nav-links .btn-logout:hover { background: #fca5a5; }
         
         .container { max-width: 1100px; margin: 30px auto; padding: 0 20px; }
         .hero-banner { background: #064e3b; color: white; padding: 35px; border-radius: 16px; margin-bottom: 25px; }
@@ -73,8 +88,13 @@ if ($view === 'inventory') {
         .table { width: 100%; border-collapse: collapse; text-align: left; margin-top: 15px; }
         .table th { background: #f8fafc; padding: 12px; border-bottom: 2px solid #e2e8f0; color: #475569; font-size: 14px; }
         .table td { padding: 12px; border-bottom: 1px solid #e2e8f0; font-size: 14px; color: #334155; }
+        .btn-add { background: #10b981; color: white; padding: 8px 14px; border-radius: 6px; text-decoration: none; font-weight: bold; font-size: 13px; }
         .btn-del { background: #ef4444; color: white; padding: 5px 10px; border-radius: 4px; text-decoration: none; font-size: 12px; font-weight: 600; }
         .alert-info { background: #dbeafe; color: #1e40af; padding: 10px 15px; border-radius: 6px; margin-bottom: 15px; font-size: 14px; }
+        
+        .stock-form { display: flex; align-items: center; gap: 6px; }
+        .stock-input { width: 50px; padding: 4px 6px; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 13px; }
+        .btn-stock { background: #0284c7; color: white; border: none; padding: 4px 8px; border-radius: 4px; font-size: 12px; cursor: pointer; font-weight: 600; }
     </style>
 </head>
 <body>
@@ -97,11 +117,14 @@ if ($view === 'inventory') {
         <div class="card">
             <div style="display:flex; justify-content:space-between; align-items:center;">
                 <h2>🌿 Plant Inventory Management</h2>
-                <a href="employee_dashboard.php" style="color:#0284c7; text-decoration:none; font-weight:bold;">⬅ Back to Dashboard</a>
+                <div>
+                    <a href="add_plant.php" class="btn-add" style="margin-right: 15px;">➕ Add Plant</a>
+                    <a href="employee_dashboard.php" style="color:#0284c7; text-decoration:none; font-weight:bold;">← Back to Dashboard</a>
+                </div>
             </div>
 
             <?php if ($msg): ?>
-                <div class="alert-info"><?php echo $msg; ?></div>
+                <div class="alert-info" style="margin-top:15px;"><?php echo $msg; ?></div>
             <?php endif; ?>
 
             <table class="table">
@@ -112,17 +135,18 @@ if ($view === 'inventory') {
                         <th>Category</th>
                         <th>Price</th>
                         <th>Stock Quantity</th>
+                        <th>Add Stock</th>
                         <th>Action</th>
                     </tr>
                 </thead>
                 <tbody>
                     <?php if ($plants_query && mysqli_num_rows($plants_query) > 0): ?>
                         <?php while ($p = mysqli_fetch_assoc($plants_query)): 
-                            // Flexible column mappings for case variations
+                            // Comprehensive fallback checks for database column names
                             $pid    = $p['Plant_ID'] ?? $p['plant_id'] ?? $p['ID'] ?? $p['id'];
                             $pname  = $p['Plant_name'] ?? $p['plant_name'] ?? $p['Name'] ?? $p['name'] ?? '-';
-                            $pcat   = $p['Category'] ?? $p['category'] ?? '-';
-                            $pprice = (float)($p['Price'] ?? $p['price'] ?? $p['unit_price'] ?? 0);
+                            $pcat   = $p['Category'] ?? $p['category'] ?? $p['Category_name'] ?? $p['category_name'] ?? '-';
+                            $pprice = (float)($p['Price'] ?? $p['price'] ?? $p['Plant_price'] ?? $p['plant_price'] ?? $p['unit_price'] ?? 0);
                             $pstock = $p['Stock_quantity'] ?? $p['stock_quantity'] ?? $p['stock'] ?? 0;
                         ?>
                         <tr>
@@ -130,7 +154,15 @@ if ($view === 'inventory') {
                             <td><strong><?php echo htmlspecialchars($pname); ?></strong></td>
                             <td><?php echo htmlspecialchars($pcat); ?></td>
                             <td>৳<?php echo number_format($pprice, 2); ?></td>
-                            <td><?php echo $pstock; ?></td>
+                            <td><strong><?php echo $pstock; ?></strong></td>
+                            <td>
+                                <form method="POST" action="employee_dashboard.php?view=inventory" class="stock-form">
+                                    <input type="hidden" name="action" value="add_stock">
+                                    <input type="hidden" name="plant_id" value="<?php echo $pid; ?>">
+                                    <input type="number" name="add_quantity" class="stock-input" min="1" value="5" required>
+                                    <button type="submit" class="btn-stock">+ Add</button>
+                                </form>
+                            </td>
                             <td>
                                 <a href="employee_dashboard.php?view=inventory&action=delete&id=<?php echo $pid; ?>" class="btn-del" onclick="return confirm('Remove plant?')">Delete</a>
                             </td>
@@ -138,7 +170,7 @@ if ($view === 'inventory') {
                         <?php endwhile; ?>
                     <?php else: ?>
                         <tr>
-                            <td colspan="6" style="text-align: center; color: #94a3b8; padding: 30px;">No plant records found in the database.</td>
+                            <td colspan="7" style="text-align: center; color: #94a3b8; padding: 30px;">No plant records found in the database.</td>
                         </tr>
                     <?php endif; ?>
                 </tbody>
