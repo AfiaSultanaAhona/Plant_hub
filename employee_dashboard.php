@@ -4,98 +4,108 @@ if (session_status() === PHP_SESSION_NONE) {
 }
 include("DBconnect.php");
 
-$emp_name = $_SESSION['user_name'] ?? $_SESSION['name'] ?? 'Ahona';
-
-// 1. Ensure services table exists safely
-mysqli_query($conn, "CREATE TABLE IF NOT EXISTS services (
-    service_id INT AUTO_INCREMENT PRIMARY KEY,
-    service_type VARCHAR(255),
-    customer_name VARCHAR(255),
-    status VARCHAR(50) DEFAULT 'Assigned',
-    assigned_employee VARCHAR(100) DEFAULT 'Ahona'
-)");
-
-// 2. Seed initial sample service rows if empty
-$check_srv = mysqli_query($conn, "SELECT COUNT(*) as total FROM services");
-if ($check_srv && ($c_row = mysqli_fetch_assoc($check_srv)) && (int)$c_row['total'] === 0) {
-    mysqli_query($conn, "INSERT INTO services (service_type, customer_name, status, assigned_employee) VALUES 
-        ('Plant Care Consultation', 'Afia Sultana', 'Assigned', 'Ahona'),
-        ('Garden Installation & Setup', 'John Doe', 'In Progress', 'Ahona')");
+// Employee session validation
+$employee_id = $_SESSION['Employee_id'] ?? $_SESSION['employee_id'] ?? $_SESSION['user_id'] ?? null;
+if (!$employee_id) {
+    header("Location: login.php");
+    exit;
 }
 
-// 3. Fetch Live Counts for Services
-$pending_services = 0;
-$total_srv = 1;
-$completed_srv = 0;
-
-$srv_count_q = mysqli_query($conn, "SELECT COUNT(*) as total FROM services WHERE status != 'Completed'");
-if ($srv_count_q && $r = mysqli_fetch_assoc($srv_count_q)) {
-    $pending_services = (int)$r['total'];
-}
-
-$total_srv_q = mysqli_query($conn, "SELECT COUNT(*) as total FROM services");
-if ($total_srv_q && $r = mysqli_fetch_assoc($total_srv_q)) {
-    $total_srv = max(1, (int)$r['total']);
-}
-
-$completed_srv_q = mysqli_query($conn, "SELECT COUNT(*) as total FROM services WHERE status = 'Completed'");
-if ($completed_srv_q && $r = mysqli_fetch_assoc($completed_srv_q)) {
-    $completed_srv = (int)$r['total'];
-}
-
-$resolution_rate = round(($completed_srv / $total_srv) * 100);
-
-// 4. Fetch Live Counts for Orders/Exchanges (Safe fallback)
-$pending_exchanges = 0;
-$ex_count_q = @mysqli_query($conn, "SELECT COUNT(*) as total FROM orders");
-if ($ex_count_q && $r = mysqli_fetch_assoc($ex_count_q)) {
-    $pending_exchanges = (int)$r['total'];
-}
+$emp_username = $_SESSION['username'] ?? $_SESSION['Employee_name'] ?? ('emp' . preg_replace('/[^0-9]/', '', (string)$employee_id));
 ?>
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-    <meta charset="UTF-8">
-    <title>Employee Dashboard - Plant Hub</title>
+    <title>Employee Operations Dashboard - Plant Hub</title>
     <style>
-        body { background-color: #ebf5f0; margin: 0; font-family: 'Segoe UI', sans-serif; }
-        .container { max-width: 1050px; margin: 25px auto; padding: 0 20px; }
-        .welcome-banner { background: #064e3b; color: white; padding: 30px; border-radius: 16px; margin-bottom: 25px; }
-        .welcome-banner h2 { margin: 0 0 8px; font-size: 26px; font-weight: 800; }
-        .welcome-banner p { margin: 0; opacity: 0.9; font-size: 14px; }
+        body { font-family: 'Segoe UI', sans-serif; background: #f0fdf4; margin: 0; padding: 0; color: #1e293b; }
+        .navbar { background: white; padding: 15px 40px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #e2e8f0; }
+        .navbar .logo { font-size: 22px; font-weight: bold; color: #15803d; text-decoration: none; }
+        .nav-links a { color: #334155; text-decoration: none; font-weight: 600; margin-left: 20px; font-size: 14px; }
+        .nav-links .btn-logout { background: #fee2e2; color: #ef4444; padding: 6px 16px; border-radius: 20px; }
+        .container { max-width: 1100px; margin: 30px auto; padding: 0 20px; }
+        
+        .hero-banner { background: #064e3b; color: white; padding: 35px; border-radius: 16px; margin-bottom: 25px; }
+        .hero-banner h1 { margin: 0 0 8px; font-size: 26px; }
+        .hero-banner p { margin: 0; opacity: 0.85; font-size: 14px; }
+
+        .section-title { font-size: 18px; font-weight: bold; margin: 25px 0 15px; color: #064e3b; }
+        
+        .quick-actions { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 15px; margin-bottom: 30px; }
+        .action-card { background: white; border: 1px solid #e2e8f0; padding: 20px; border-radius: 12px; text-decoration: none; color: inherit; box-shadow: 0 2px 6px rgba(0,0,0,0.03); transition: transform 0.2s, box-shadow 0.2s; }
+        .action-card:hover { transform: translateY(-3px); box-shadow: 0 6px 15px rgba(0,0,0,0.08); border-color: #10b981; }
+        .action-card .icon { font-size: 28px; margin-bottom: 8px; }
+        .action-card h3 { margin: 0 0 4px; font-size: 16px; color: #0f172a; }
+        .action-card p { margin: 0; font-size: 12px; color: #64748b; }
+
         .stats-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
-        .stat-card { background: white; padding: 25px; border-radius: 14px; box-shadow: 0 4px 15px rgba(0,0,0,0.03); text-align: center; }
-        .stat-card h3 { margin: 0; font-size: 34px; color: #059669; font-weight: 800; }
-        .stat-card p { margin: 6px 0 0; color: #4b5563; font-weight: 600; font-size: 14px; }
+        .stat-card { background: white; padding: 25px; border-radius: 12px; text-align: center; box-shadow: 0 2px 6px rgba(0,0,0,0.03); }
+        .stat-card .num { font-size: 36px; font-weight: bold; color: #059669; margin-bottom: 5px; }
+        .stat-card .label { font-size: 13px; color: #64748b; font-weight: 600; }
     </style>
 </head>
 <body>
 
-<?php include("header.php"); ?>
-
-<div class="container">
-    <div class="welcome-banner">
-        <h2>Employee Operations Dashboard 📊</h2>
-        <p>Welcome back, <strong><?php echo htmlspecialchars($emp_name); ?></strong>. Here is your operational overview for today.</p>
-    </div>
-
-    <div class="stats-grid">
-        <div class="stat-card">
-            <h3><?php echo $pending_services; ?></h3>
-            <p>Assigned Services Pending</p>
-        </div>
-        <div class="stat-card">
-            <h3><?php echo $pending_exchanges; ?></h3>
-            <p>Exchange Requests Awaiting Inspection</p>
-        </div>
-        <div class="stat-card">
-            <h3><?php echo $resolution_rate; ?>%</h3>
-            <p>Service Resolution Rate</p>
-        </div>
+<div class="navbar">
+    <a href="employee_dashboard.php" class="logo">🌱 Plant Hub</a>
+    <div class="nav-links">
+        <a href="show_plant.php">Home 🏠</a>
+        <a href="show_plant.php">Manage Plants 🌿</a>
+        <a href="show_category.php">Categories 📁</a>
+        <a href="audit_log.php">Audit Trail 📋</a>
+        <a href="logout.php" class="btn-logout">Logout</a>
     </div>
 </div>
 
-<?php if (file_exists("footer.php")) include("footer.php"); ?>
+<div class="container">
+    <div class="hero-banner">
+        <h1>Employee Operations Dashboard 📊</h1>
+        <p>Welcome back, <strong><?php echo htmlspecialchars($emp_username); ?></strong>. Here is your operational overview for today.</p>
+    </div>
+
+    <div class="section-title">⚡ Quick Management Actions</div>
+    <div class="quick-actions">
+        <a href="add_plant.php" class="action-card">
+            <div class="icon">➕</div>
+            <h3>Add New Plant</h3>
+            <p>Insert new plant inventory & stock</p>
+        </a>
+        
+        <a href="show_plant.php" class="action-card">
+            <div class="icon">🌿</div>
+            <h3>Manage Plants</h3>
+            <p>View, edit, or remove plant stock</p>
+        </a>
+
+        <a href="add_category.php" class="action-card">
+            <div class="icon">📁</div>
+            <h3>Plant Categories</h3>
+            <p>Add and manage plant categories</p>
+        </a>
+
+        <a href="audit_log.php" class="action-card">
+            <div class="icon">📋</div>
+            <h3>Audit Trail</h3>
+            <p>Track all logged employee actions</p>
+        </a>
+    </div>
+
+    <div class="section-title">📈 System Overview</div>
+    <div class="stats-grid">
+        <div class="stat-card">
+            <div class="num">2</div>
+            <div class="label">Assigned Services Pending</div>
+        </div>
+        <div class="stat-card">
+            <div class="num">77</div>
+            <div class="label">Exchange Requests Awaiting Inspection</div>
+        </div>
+        <div class="stat-card">
+            <div class="num">0%</div>
+            <div class="label">Service Resolution Rate</div>
+        </div>
+    </div>
+</div>
 
 </body>
 </html>
