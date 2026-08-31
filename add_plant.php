@@ -77,12 +77,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } else {
 
         /* -----------------------------------------------------
-           INSERT PLANT
+           SAFE INSERT (Fixes duplicate '0' key error)
            ----------------------------------------------------- */
 
+        // 1. Resolve any existing zero-ID conflicts in database
+        mysqli_query($conn, "UPDATE plant SET Plant_ID = 9999 WHERE Plant_ID = 0");
+
+        // 2. Compute next unique Plant_ID
+        $max_res = mysqli_query($conn, "SELECT MAX(Plant_ID) AS max_id FROM plant");
+        $max_row = mysqli_fetch_assoc($max_res);
+        $next_id = ((int)($max_row['max_id'] ?? 0)) + 1;
+
         $sql = "INSERT INTO plant
-                (Plant_name, Unit_price, Stock_quantity, Low_stock_level, Care_info, Category_ID)
-                VALUES (?, ?, ?, ?, ?, ?)";
+                (Plant_ID, Plant_name, Unit_price, Stock_quantity, Low_stock_level, Care_info, Category_ID)
+                VALUES (?, ?, ?, ?, ?, ?, ?)";
 
         $stmt = mysqli_prepare($conn, $sql);
 
@@ -90,7 +98,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             mysqli_stmt_bind_param(
                 $stmt,
-                "sdiisi",
+                "isdiisi",
+                $next_id,
                 $plant_name,
                 $unit_price,
                 $stock_quantity,
@@ -101,14 +110,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             if (mysqli_stmt_execute($stmt)) {
 
-                $new_plant_id = mysqli_insert_id($conn);
-
                 mysqli_stmt_close($stmt);
 
                 /* Redirect back to employee inventory */
                 header(
                     "Location: employee_dashboard.php?view=inventory&msg=added_new&id=" .
-                    $new_plant_id
+                    $next_id
                 );
                 exit;
 

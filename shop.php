@@ -104,11 +104,11 @@ if ($res && mysqli_num_rows($res) > 0) {
     }
 }
 
-// Fallback: If no Outdoor Plants in database, add sample ones with care and stock stats
+// Fallback: If no Outdoor Plants in database, add sample ones
 if (!$has_outdoor_in_db) {
-    $all_plants[] = ['Plant_ID' => '901', 'Plant_name' => 'Bougainvillea', 'Unit_price' => 220.00, 'Category_ID' => '2', 'supplier_id' => '1', 'Stock_quantity' => 12, 'sunlight' => 'Full Sun', 'watering' => 'Weekly', 'difficulty' => 'Easy'];
-    $all_plants[] = ['Plant_ID' => '902', 'Plant_name' => 'Areca Palm Tree', 'Unit_price' => 450.00, 'Category_ID' => '2', 'supplier_id' => '1', 'Stock_quantity' => 5, 'sunlight' => 'Partial Shade', 'watering' => 'Twice Weekly', 'difficulty' => 'Moderate'];
-    $all_plants[] = ['Plant_ID' => '903', 'Plant_name' => 'Red Hibiscus', 'Unit_price' => 180.00, 'Category_ID' => '2', 'supplier_id' => '1', 'Stock_quantity' => 0, 'sunlight' => 'Direct Sun', 'watering' => 'Daily', 'difficulty' => 'Easy'];
+    $all_plants[] = ['Plant_ID' => '901', 'Plant_name' => 'Bougainvillea', 'Unit_price' => 220.00, 'Category_ID' => '2', 'supplier_id' => '1', 'Stock_quantity' => 12, 'Care_info' => 'Light: Full Sun, Water: Weekly, Level: Easy'];
+    $all_plants[] = ['Plant_ID' => '902', 'Plant_name' => 'Areca Palm Tree', 'Unit_price' => 450.00, 'Category_ID' => '2', 'supplier_id' => '1', 'Stock_quantity' => 5, 'Care_info' => 'Light: Partial Shade, Water: Twice Weekly, Level: Moderate'];
+    $all_plants[] = ['Plant_ID' => '903', 'Plant_name' => 'Red Hibiscus', 'Unit_price' => 180.00, 'Category_ID' => '2', 'supplier_id' => '1', 'Stock_quantity' => 0, 'Care_info' => 'Light: Direct Sun, Water: Daily, Level: Easy'];
 }
 ?>
 
@@ -222,14 +222,23 @@ if (!$has_outdoor_in_db) {
             // Resolve Price
             $raw_price = $row_lower['unit_price'] ?? $row_lower['price'] ?? $row_lower['amount'] ?? 100;
 
-            // Resolve Stock & Care Details using DB column 'Stock_quantity'
+            // Resolve Stock
             $stock = isset($row_lower['stock_quantity']) ? (int)$row_lower['stock_quantity'] : (int)($row_lower['stock'] ?? 0);
-            $sunlight = htmlspecialchars($row_lower['sunlight'] ?? 'Indirect Light');
-            $watering = htmlspecialchars($row_lower['watering'] ?? 'Weekly');
-            $difficulty = htmlspecialchars($row_lower['difficulty'] ?? 'Easy');
-
             $stock_class = ($stock > 5) ? 'in-stock' : (($stock > 0) ? 'low-stock' : 'out-stock');
             $stock_label = ($stock > 0) ? "$stock in stock" : "Out of Stock";
+
+            // Dynamic Care Info Parsing from DB column 'Care_info'
+            $raw_care = trim($row_lower['care_info'] ?? $row_lower['care'] ?? '');
+            
+            $sunlight   = $row_lower['sunlight'] ?? 'Indirect Light';
+            $watering   = $row_lower['watering'] ?? 'Weekly';
+            $difficulty = $row_lower['difficulty'] ?? 'Easy';
+
+            if (!empty($raw_care)) {
+                if (preg_match('/light:\s*([^,|]+)/i', $raw_care, $m)) { $sunlight = trim($m[1]); }
+                if (preg_match('/water:\s*([^,|]+)/i', $raw_care, $m)) { $watering = trim($m[1]); }
+                if (preg_match('/level:\s*([^,|]+)/i', $raw_care, $m)) { $difficulty = trim($m[1]); }
+            }
 
             echo '
             <div class="plant-card">
@@ -242,11 +251,19 @@ if (!$has_outdoor_in_db) {
                     <!-- Live Stock Level -->
                     <span class="stock-badge ' . $stock_class . '">' . $stock_label . '</span>
 
-                    <!-- Plant Care Details -->
-                    <div class="care-info">
-                        <div class="care-item"><span>☀️ Light:</span> <strong>' . $sunlight . '</strong></div>
-                        <div class="care-item"><span>💧 Water:</span> <strong>' . $watering . '</strong></div>
-                        <div class="care-item"><span>🌱 Level:</span> <strong>' . $difficulty . '</strong></div>
+                    <!-- Plant Care Details (Dynamic) -->
+                    <div class="care-info">';
+                    
+                    if (!empty($raw_care) && !preg_match('/(light|water|level):/i', $raw_care)) {
+                        echo '<div style="font-style: italic; color: #475569;">🌿 ' . htmlspecialchars($raw_care) . '</div>';
+                    } else {
+                        echo '
+                        <div class="care-item"><span>☀️ Light:</span> <strong>' . htmlspecialchars($sunlight) . '</strong></div>
+                        <div class="care-item"><span>💧 Water:</span> <strong>' . htmlspecialchars($watering) . '</strong></div>
+                        <div class="care-item"><span>🌱 Level:</span> <strong>' . htmlspecialchars($difficulty) . '</strong></div>';
+                    }
+
+            echo '
                     </div>
                 </div>
 

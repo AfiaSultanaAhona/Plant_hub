@@ -6,18 +6,27 @@ if (session_status() === PHP_SESSION_NONE) {
 include("DBconnect.php");
 
 /* =========================================================
-   1. GET CUSTOMER ID
+   1. GET AND SANITIZE CUSTOMER ID
 ========================================================= */
 
-$customer_id =
-    $_SESSION['customer_id'] ??
-    $_SESSION['user_id'] ??
-    $_SESSION['Customer_ID'] ??
-    $_SESSION['id'] ??
-    null;
+// Check role: prevent employee sessions from viewing customer orders
+$role = $_SESSION['role'] ?? '';
 
-$clean_customer_id = (int) preg_replace('/[^0-9]/', '', (string)$customer_id);
+// Grab standard customer session keys
+$raw_id = $_SESSION['customer_id'] 
+       ?? $_SESSION['Customer_id'] 
+       ?? $_SESSION['Customer_ID'] 
+       ?? $_SESSION['user_id'] 
+       ?? $_SESSION['id'] 
+       ?? null;
 
+// Clean non-numeric characters (e.g., converts 'C5' or 'c-5' to 5)
+$clean_customer_id = 0;
+if (!empty($raw_id)) {
+    $clean_customer_id = (int) preg_replace('/[^0-9]/', '', (string)$raw_id);
+}
+
+// Redirect to login if invalid customer ID or wrong role
 if ($clean_customer_id <= 0) {
     header("Location: login.php");
     exit;
@@ -54,15 +63,11 @@ if ($stmt) {
 <html lang="en">
 
 <head>
-
     <meta charset="UTF-8">
-
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-
     <title>My Orders - Plant Hub</title>
 
     <style>
-
         body {
             font-family: 'Segoe UI', sans-serif;
             background: #eef7f2;
@@ -175,7 +180,6 @@ if ($stmt) {
         }
 
         @media (max-width: 800px) {
-
             .orders-table {
                 font-size: 13px;
             }
@@ -190,234 +194,162 @@ if ($stmt) {
                 padding: 7px 9px;
                 font-size: 12px;
             }
-
         }
-
     </style>
-
 </head>
 
 <body>
 
-<?php include("header.php"); ?>
+<?php 
+if (file_exists("header.php")) {
+    include("header.php");
+} 
+?>
 
 <div class="container">
-
     <div class="card">
-
         <h2>My Orders 📦</h2>
-
         <p style="color:#64748b;">
             View your purchases and request a plant exchange when needed.
         </p>
 
         <table class="orders-table">
-
             <thead>
-
                 <tr>
-
                     <th>Order #</th>
-
                     <th>Plant Name</th>
-
                     <th>Amount Paid</th>
-
                     <th>Points Redeemed</th>
-
                     <th>Status</th>
-
                     <th>Exchange</th>
-
                 </tr>
-
             </thead>
-
             <tbody>
-
             <?php if ($result && mysqli_num_rows($result) > 0): ?>
-
                 <?php while ($row = mysqli_fetch_assoc($result)): ?>
-
                     <?php
-
-                    $order_id =
-                        $row['Order_id']
+                    $order_id = $row['Order_id']
                         ?? $row['order_id']
                         ?? $row['Order_ID']
                         ?? 0;
 
-                    $plant_id =
-                        $row['Plant_id']
+                    $plant_id = $row['Plant_id']
                         ?? $row['Plant_ID']
                         ?? $row['plant_id']
                         ?? 0;
 
-                    $plant_name =
-                        $row['Plant_name']
+                    $plant_name = $row['Plant_name']
                         ?? $row['plant_name']
                         ?? 'Unknown Plant';
 
-                    $amount =
-                        $row['Amount']
+                    $amount = $row['Amount']
                         ?? $row['amount']
+                        ?? $row['Total_amount']
                         ?? 0;
 
-                    $points =
-                        $row['points_redeemed']
+                    $points = $row['points_redeemed']
                         ?? $row['Points_redeemed']
                         ?? 0;
 
-                    $exchange_status =
-                        $row['Exchange_status']
+                    $exchange_status = $row['Exchange_status']
                         ?? $row['exchange_status']
                         ?? 'None';
-
                     ?>
 
                     <tr>
-
                         <!-- ORDER ID -->
-
                         <td>
                             <strong>
                                 #<?php echo htmlspecialchars($order_id); ?>
                             </strong>
                         </td>
 
-
                         <!-- PLANT -->
-
                         <td>
-
-                            🌱
-                            <?php echo htmlspecialchars($plant_name); ?>
-
+                            🌱 <?php echo htmlspecialchars($plant_name); ?>
                         </td>
-
 
                         <!-- AMOUNT -->
-
                         <td class="amount">
-
                             ৳<?php echo number_format((float)$amount, 2); ?>
-
                         </td>
-
 
                         <!-- POINTS -->
-
                         <td>
-
                             <?php echo (int)$points; ?> PTS
-
                         </td>
 
-
                         <!-- STATUS -->
-
                         <td>
-
                             <?php
-
                             $status_lower = strtolower(trim((string)$exchange_status));
 
                             if ($status_lower === 'pending'):
-
                             ?>
-
                                 <span class="status-badge status-pending">
                                     Exchange Pending
                                 </span>
-
                             <?php elseif ($status_lower === 'completed'): ?>
-
                                 <span class="status-badge status-completed">
                                     Exchange Completed
                                 </span>
-
                             <?php else: ?>
-
                                 <span class="status-badge status-none">
                                     No Exchange
                                 </span>
-
                             <?php endif; ?>
-
                         </td>
 
-
                         <!-- EXCHANGE BUTTON -->
-
                         <td>
-
                             <?php if (
                                 $status_lower !== 'pending' &&
                                 $status_lower !== 'completed' &&
                                 (int)$plant_id > 0
                             ): ?>
-
                                 <a
                                     href="process_exchanges.php?order_id=<?php echo (int)$order_id; ?>&offered_plant_id=<?php echo (int)$plant_id; ?>"
                                     class="exchange-btn"
                                 >
                                     🔄 Exchange
                                 </a>
-
                             <?php elseif ($status_lower === 'pending'): ?>
-
                                 <span class="disabled-btn">
                                     ⏳ Pending
                                 </span>
-
                             <?php elseif ($status_lower === 'completed'): ?>
-
                                 <span class="disabled-btn">
                                     ✓ Done
                                 </span>
-
                             <?php else: ?>
-
                                 <span class="disabled-btn">
                                     Not Available
                                 </span>
-
                             <?php endif; ?>
-
                         </td>
-
                     </tr>
-
                 <?php endwhile; ?>
-
             <?php else: ?>
-
                 <tr>
-
                     <td colspan="6" class="empty">
-
                         No order history found.
-
                         <br><br>
-
-                        <a href="shop.php">
+                        <a href="shop.php" style="color: #065f46; font-weight: bold;">
                             Start Shopping 🌱
                         </a>
-
                     </td>
-
                 </tr>
-
             <?php endif; ?>
-
             </tbody>
-
         </table>
-
     </div>
-
 </div>
 
-</body>
+<?php 
+if (file_exists("footer.php")) {
+    include("footer.php");
+} 
+?>
 
+</body>
 </html>
