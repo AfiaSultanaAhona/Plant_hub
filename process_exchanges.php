@@ -1,83 +1,912 @@
 <?php
-if(session_status()===PHP_SESSION_NONE)session_start();
+
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
+
 require_once "DBconnect.php";
-$raw=$_SESSION['customer_id']??$_SESSION['Customer_ID']??$_SESSION['Customer_id']??$_SESSION['user_id']??null;
-$customer_id=(int)preg_replace('/[^0-9]/','',(string)$raw);
-if($customer_id<=0){header("Location: login.php");exit;}
-$message=$error="";
 
-/* Customer completes ONLY an approved exchange. */
-if($_SERVER["REQUEST_METHOD"]==="GET"&&($_GET["action"]??"")==="complete"){
- $id=(int)($_GET["exchange_id"]??0); mysqli_begin_transaction($conn);
- try{
-  $q=mysqli_query($conn,"SELECT * FROM exchange WHERE exchange_id=$id AND Customer_ID=$customer_id FOR UPDATE");
-  if(!$q||mysqli_num_rows($q)===0)throw new Exception("Exchange request not found.");
-  $e=mysqli_fetch_assoc($q);
-  if(strcasecmp($e["status"],"Approved")!==0)throw new Exception("This exchange must be approved by an employee first.");
-  $old=(int)$e["Offered_plant_ID"]; $new=(int)$e["Received_plant_ID"]; $order=(int)($e["Order_ID"]??0);
-  $q=mysqli_query($conn,"SELECT Plant_ID,Plant_name,Unit_price,Stock_quantity FROM plant WHERE Plant_ID IN($old,$new) FOR UPDATE");
-  $p=[];while($r=mysqli_fetch_assoc($q))$p[(int)$r["Plant_ID"]]=$r;
-  if(!isset($p[$old])||!isset($p[$new]))throw new Exception("One of the plants no longer exists.");
-  if((int)$p[$new]["Stock_quantity"]<=0)throw new Exception("The requested plant is currently out of stock.");
-  $d=round((float)$p[$new]["Unit_price"]-(float)$p[$old]["Unit_price"],2);
-  if($d>0){$method="Cash on Delivery";$pay="COD due ৳".number_format($d,2);$dir="Customer Pays";}
-  elseif($d<0){
-   $refund=abs($d);
-   $w=mysqli_query($conn,"UPDATE customer SET wallet_balance=COALESCE(wallet_balance,0)+$refund WHERE Customer_ID=$customer_id");
-   if(!$w||mysqli_affected_rows($conn)!==1)throw new Exception("Could not credit the store wallet.");
-   $method="Store Wallet Credit";$pay="Refunded ৳".number_format($refund,2)." to store wallet";$dir="Store Refunds";
-  }else{$method="N/A";$pay="No price adjustment";$dir="No Adjustment";}
-  if(!mysqli_query($conn,"UPDATE plant SET Stock_quantity=Stock_quantity+1 WHERE Plant_ID=$old")||mysqli_affected_rows($conn)!==1)throw new Exception("Could not return the old plant.");
-  if(!mysqli_query($conn,"UPDATE plant SET Stock_quantity=Stock_quantity-1 WHERE Plant_ID=$new AND Stock_quantity>0")||mysqli_affected_rows($conn)!==1)throw new Exception("Could not remove the requested plant.");
-  $m=mysqli_real_escape_string($conn,$method);$ps=mysqli_real_escape_string($conn,$pay);$di=mysqli_real_escape_string($conn,$dir);
-  $note=mysqli_real_escape_string($conn,"Completed exchange: returned ".$p[$old]["Plant_name"]." and received ".$p[$new]["Plant_name"]);
-  if(!mysqli_query($conn,"UPDATE exchange SET Exchange_value=$d,status='Completed',payment_method='$m',payment_status='$ps',adjustment_direction='$di',notes='$note' WHERE exchange_id=$id AND Customer_ID=$customer_id"))throw new Exception("Could not complete the exchange.");
-  if($order>0)mysqli_query($conn,"UPDATE orders SET Exchange_status='Completed' WHERE Order_id=$order AND Customer_id=$customer_id");
-  mysqli_commit($conn);$message="Exchange #$id completed successfully.";
-  if($d>0)$message.=" Extra ৳".number_format($d,2)." is payable by COD.";
-  elseif($d<0)$message.=" ৳".number_format(abs($d),2)." was added to your store wallet.";
- }catch(Throwable $x){mysqli_rollback($conn);$error=$x->getMessage();}
+/*
+|--------------------------------------------------------------------------
+| CUSTOMER SESSION
+|--------------------------------------------------------------------------
+*/
+
+$raw_customer =
+    $_SESSION['customer_id']
+    ?? $_SESSION['Customer_ID']
+    ?? $_SESSION['user_id']
+    ?? null;
+
+$customer_id = (int) preg_replace(
+    '/[^0-9]/',
+    '',
+    (string) $raw_customer
+);
+
+if ($customer_id <= 0) {
+    header("Location: login.php");
+    exit;
 }
 
-/* Customer submits request; NO stock/wallet change here. */
-if($_SERVER["REQUEST_METHOD"]==="POST"&&isset($_POST["submit_exchange"])){
- $order=(int)($_POST["order_id"]??0);$old=(int)($_POST["offered_plant_id"]??0);$new=(int)($_POST["received_plant_id"]??0);
- if($order<=0||$old<=0||$new<=0)$error="Invalid exchange request.";
- elseif($old===$new)$error="Please select a different plant to receive.";
- else{
-  $oq=mysqli_query($conn,"SELECT Order_id FROM orders WHERE Order_id=$order AND Customer_id=$customer_id AND Plant_id=$old AND Amount>0 LIMIT 1");
-  $opq=mysqli_query($conn,"SELECT Plant_ID,Plant_name,Unit_price FROM plant WHERE Plant_ID=$old LIMIT 1");
-  $npq=mysqli_query($conn,"SELECT Plant_ID,Plant_name,Unit_price,Stock_quantity FROM plant WHERE Plant_ID=$new LIMIT 1");
-  if(!$oq||mysqli_num_rows($oq)===0)$error="You can only exchange a plant from your own purchase history.";
-  elseif(!$opq||!$npq||mysqli_num_rows($opq)===0||mysqli_num_rows($npq)===0)$error="Selected plant could not be found.";
-  else{$op=mysqli_fetch_assoc($opq);$np=mysqli_fetch_assoc($npq);
-   if((int)$np["Stock_quantity"]<=0)$error="The requested plant is currently out of stock.";
-   else{$a=mysqli_query($conn,"SELECT exchange_id FROM exchange WHERE Order_ID=$order AND Customer_ID=$customer_id AND status IN('Pending','Approved') LIMIT 1");
-    if($a&&mysqli_num_rows($a)>0)$error="This order already has an active exchange request.";
-    else{$d=round((float)$np["Unit_price"]-(float)$op["Unit_price"],2);
-     if($d>0){$method="Cash on Delivery";$pay="COD due ৳".number_format($d,2);$dir="Customer Pays";}
-     elseif($d<0){$method="Store Wallet Credit";$pay="Refund ৳".number_format(abs($d),2)." to store wallet after completion";$dir="Store Refunds";}
-     else{$method="N/A";$pay="No price adjustment";$dir="No Adjustment";}
-     $n=mysqli_real_escape_string($conn,"Customer requested exchange: ".$op["Plant_name"]." → ".$np["Plant_name"]);
-     $method=mysqli_real_escape_string($conn,$method);$pay=mysqli_real_escape_string($conn,$pay);$dir=mysqli_real_escape_string($conn,$dir);
-     $s="INSERT INTO exchange(Exchange_date,Exchange_value,Received_plant_ID,Customer_ID,Employee_ID,Offered_plant_ID,Order_ID,status,payment_method,payment_status,adjustment_direction,notes) VALUES(CURDATE(),$d,$new,$customer_id,NULL,$old,$order,'Pending','$method','$pay','$dir','$n')";
-     if(mysqli_query($conn,$s)){mysqli_query($conn,"UPDATE orders SET Exchange_status='Pending' WHERE Order_id=$order AND Customer_id=$customer_id");$message="Exchange request submitted. Please wait for employee approval.";}else $error=mysqli_error($conn);
+$message = "";
+$error = "";
+
+/*
+|--------------------------------------------------------------------------
+| VALUES FROM MY ORDERS
+|--------------------------------------------------------------------------
+|
+| My Orders sends:
+|
+| process_exchanges.php?order_id=XX&offered_plant_id=XX
+|
+*/
+
+$order_id = (int) (
+    $_GET['order_id']
+    ?? $_POST['order_id']
+    ?? 0
+);
+
+$offered_from_order = (int) (
+    $_GET['offered_plant_id']
+    ?? $_POST['offered_plant_id']
+    ?? 0
+);
+
+
+/*
+|--------------------------------------------------------------------------
+| SUBMIT EXCHANGE REQUEST
+|--------------------------------------------------------------------------
+|
+| IMPORTANT:
+|
+| Customer submitting a request DOES NOT:
+| - change stock
+| - change wallet
+| - complete exchange
+|
+| It only creates a Pending request.
+|
+| Employee will approve it from exchange_management.php.
+|
+*/
+
+if ($_SERVER["REQUEST_METHOD"] === "POST"
+    && isset($_POST["submit_exchange"])) {
+
+    $offered = (int) ($_POST["offered_plant_id"] ?? 0);
+
+    $received = (int) ($_POST["received_plant_id"] ?? 0);
+
+    $posted_order_id = (int) ($_POST["order_id"] ?? 0);
+
+    if ($posted_order_id > 0) {
+        $order_id = $posted_order_id;
     }
-   }
-  }
- }
- }
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | BASIC VALIDATION
+    |--------------------------------------------------------------------------
+    */
+
+    if ($offered <= 0 || $received <= 0) {
+
+        $error = "Please select both plants.";
+
+    } elseif ($offered === $received) {
+
+        $error = "You cannot exchange a plant for the same plant.";
+
+    } else {
+
+        /*
+        |--------------------------------------------------------------------------
+        | VERIFY CUSTOMER'S ORDER
+        |--------------------------------------------------------------------------
+        */
+
+        if ($order_id > 0) {
+
+            $order_sql = "
+                SELECT
+                    Order_id,
+                    Plant_id,
+                    Amount
+                FROM orders
+                WHERE Order_id = $order_id
+                  AND Customer_id = $customer_id
+                LIMIT 1
+            ";
+
+            $order_result = mysqli_query($conn, $order_sql);
+
+            if (!$order_result) {
+
+                $error = "Could not verify the selected order.";
+
+            } elseif (mysqli_num_rows($order_result) === 0) {
+
+                $error = "The selected order could not be found.";
+
+            } else {
+
+                $order = mysqli_fetch_assoc($order_result);
+
+                $order_plant_id = (int) $order["Plant_id"];
+
+                /*
+                 * Make sure the plant selected for exchange
+                 * actually belongs to this order.
+                 */
+
+                if ($order_plant_id !== $offered) {
+
+                    $error =
+                        "The selected plant does not belong to this order.";
+                }
+            }
+
+        } else {
+
+            /*
+            |--------------------------------------------------------------------------
+            | IF NO ORDER ID WAS PROVIDED
+            |--------------------------------------------------------------------------
+            */
+
+            $owned_sql = "
+                SELECT 1
+                FROM orders
+                WHERE Customer_id = $customer_id
+                  AND Plant_id = $offered
+                  AND Amount > 0
+                LIMIT 1
+            ";
+
+            $owned_result = mysqli_query($conn, $owned_sql);
+
+            if (!$owned_result
+                || mysqli_num_rows($owned_result) === 0) {
+
+                $error =
+                    "You can only offer a plant that you previously purchased.";
+            }
+        }
+
+
+        /*
+        |--------------------------------------------------------------------------
+        | CONTINUE ONLY IF VALID
+        |--------------------------------------------------------------------------
+        */
+
+        if ($error === "") {
+
+            /*
+            |--------------------------------------------------------------------------
+            | GET OFFERED PLANT
+            |--------------------------------------------------------------------------
+            */
+
+            $offered_sql = "
+                SELECT
+                    Plant_ID,
+                    Plant_name,
+                    Unit_price
+                FROM plant
+                WHERE Plant_ID = $offered
+                LIMIT 1
+            ";
+
+            $offered_result = mysqli_query(
+                $conn,
+                $offered_sql
+            );
+
+
+            /*
+            |--------------------------------------------------------------------------
+            | GET RECEIVED PLANT
+            |--------------------------------------------------------------------------
+            */
+
+            $received_sql = "
+                SELECT
+                    Plant_ID,
+                    Plant_name,
+                    Unit_price,
+                    Stock_quantity
+                FROM plant
+                WHERE Plant_ID = $received
+                LIMIT 1
+            ";
+
+            $received_result = mysqli_query(
+                $conn,
+                $received_sql
+            );
+
+
+            if (!$offered_result
+                || mysqli_num_rows($offered_result) === 0) {
+
+                $error = "The plant you want to exchange could not be found.";
+
+            } elseif (
+                !$received_result
+                || mysqli_num_rows($received_result) === 0
+            ) {
+
+                $error = "The requested plant could not be found.";
+
+            } else {
+
+                $offered_plant =
+                    mysqli_fetch_assoc($offered_result);
+
+                $received_plant =
+                    mysqli_fetch_assoc($received_result);
+
+
+                /*
+                |--------------------------------------------------------------------------
+                | CHECK STOCK
+                |--------------------------------------------------------------------------
+                */
+
+                if (
+                    (int) $received_plant["Stock_quantity"] <= 0
+                ) {
+
+                    $error =
+                        "The requested plant is currently out of stock.";
+
+                } else {
+
+                    /*
+                    |--------------------------------------------------------------------------
+                    | CALCULATE PRICE DIFFERENCE
+                    |--------------------------------------------------------------------------
+                    */
+
+                    $old_price =
+                        (float) $offered_plant["Unit_price"];
+
+                    $new_price =
+                        (float) $received_plant["Unit_price"];
+
+                    $difference =
+                        round($new_price - $old_price, 2);
+
+
+                    /*
+                    |--------------------------------------------------------------------------
+                    | PAYMENT INFORMATION
+                    |--------------------------------------------------------------------------
+                    |
+                    | NOTHING IS PAID OR REFUNDED HERE.
+                    |
+                    | This information is only stored with the request.
+                    |
+                    */
+
+                    if ($difference > 0) {
+
+                        $payment_method =
+                            "Cash on Delivery";
+
+                        $payment_status =
+                            "Pending approval - customer pays ৳"
+                            . number_format($difference, 2)
+                            . " COD";
+
+                        $direction =
+                            "Customer Pays";
+
+                    } elseif ($difference < 0) {
+
+                        $payment_method =
+                            "Store Wallet Credit";
+
+                        $payment_status =
+                            "Pending approval - refund ৳"
+                            . number_format(
+                                abs($difference),
+                                2
+                            )
+                            . " to store wallet after completion";
+
+                        $direction =
+                            "Store Refund";
+
+                    } else {
+
+                        $payment_method =
+                            "N/A";
+
+                        $payment_status =
+                            "No price adjustment";
+
+                        $direction =
+                            "No Adjustment";
+                    }
+
+
+                    /*
+                    |--------------------------------------------------------------------------
+                    | PREVENT DUPLICATE ACTIVE REQUEST
+                    |--------------------------------------------------------------------------
+                    */
+
+                    $duplicate_sql = "
+                        SELECT exchange_id
+                        FROM exchange
+                        WHERE Customer_ID = $customer_id
+                          AND Offered_plant_ID = $offered
+                          AND Received_plant_ID = $received
+                          AND status IN ('Pending', 'Approved')
+                    ";
+
+                    if ($order_id > 0) {
+
+                        $duplicate_sql .=
+                            " AND Order_ID = $order_id ";
+
+                    } else {
+
+                        $duplicate_sql .=
+                            " AND Order_ID IS NULL ";
+                    }
+
+                    $duplicate_sql .= " LIMIT 1";
+
+
+                    $duplicate_result =
+                        mysqli_query(
+                            $conn,
+                            $duplicate_sql
+                        );
+
+
+                    if (
+                        $duplicate_result
+                        && mysqli_num_rows($duplicate_result) > 0
+                    ) {
+
+                        $error =
+                            "An active exchange request already exists for this order.";
+
+                    } else {
+
+                        /*
+                        |--------------------------------------------------------------------------
+                        | NOTES
+                        |--------------------------------------------------------------------------
+                        */
+
+                        $notes =
+                            "Customer requests exchange: "
+                            . $offered_plant["Plant_name"]
+                            . " → "
+                            . $received_plant["Plant_name"];
+
+
+                        /*
+                        |--------------------------------------------------------------------------
+                        | ESCAPE TEXT
+                        |--------------------------------------------------------------------------
+                        */
+
+                        $payment_method_e =
+                            mysqli_real_escape_string(
+                                $conn,
+                                $payment_method
+                            );
+
+                        $payment_status_e =
+                            mysqli_real_escape_string(
+                                $conn,
+                                $payment_status
+                            );
+
+                        $direction_e =
+                            mysqli_real_escape_string(
+                                $conn,
+                                $direction
+                            );
+
+                        $notes_e =
+                            mysqli_real_escape_string(
+                                $conn,
+                                $notes
+                            );
+
+
+                        /*
+                        |--------------------------------------------------------------------------
+                        | ORDER ID
+                        |--------------------------------------------------------------------------
+                        */
+
+                        $order_value =
+                            ($order_id > 0)
+                            ? (string) $order_id
+                            : "NULL";
+
+
+                        /*
+                        |--------------------------------------------------------------------------
+                        | INSERT EXCHANGE REQUEST
+                        |--------------------------------------------------------------------------
+                        */
+
+                        $insert_sql = "
+                            INSERT INTO exchange
+                            (
+                                Exchange_date,
+                                Exchange_value,
+                                Received_plant_ID,
+                                Customer_ID,
+                                Offered_plant_ID,
+                                Order_ID,
+                                status,
+                                payment_method,
+                                payment_status,
+                                adjustment_direction,
+                                notes
+                            )
+                            VALUES
+                            (
+                                CURDATE(),
+                                $difference,
+                                $received,
+                                $customer_id,
+                                $offered,
+                                $order_value,
+                                'Pending',
+                                '$payment_method_e',
+                                '$payment_status_e',
+                                '$direction_e',
+                                '$notes_e'
+                            )
+                        ";
+
+
+                        if (mysqli_query($conn, $insert_sql)) {
+
+                            /*
+                            |--------------------------------------------------------------------------
+                            | UPDATE ORDER STATUS
+                            |--------------------------------------------------------------------------
+                            |
+                            | @ prevents an error here from breaking
+                            | the exchange request if Exchange_status
+                            | does not exist.
+                            |
+                            */
+
+                            if ($order_id > 0) {
+
+                                @mysqli_query(
+                                    $conn,
+                                    "
+                                    UPDATE orders
+                                    SET Exchange_status = 'Pending'
+                                    WHERE Order_id = $order_id
+                                      AND Customer_id = $customer_id
+                                    "
+                                );
+                            }
+
+
+                            $message =
+                                "Exchange request submitted successfully. "
+                                . "Please wait for an employee to approve it.";
+
+                            $offered_from_order =
+                                $offered;
+
+                        } else {
+
+                            $error =
+                                "Could not submit exchange request: "
+                                . mysqli_error($conn);
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
-$order=(int)($_GET["order_id"]??0);$old=(int)($_GET["offered_plant_id"]??0);
-$owned=$order&&$old?mysqli_query($conn,"SELECT p.Plant_ID,p.Plant_name,p.Unit_price,o.Order_id FROM orders o JOIN plant p ON p.Plant_ID=o.Plant_id WHERE o.Order_id=$order AND o.Customer_id=$customer_id AND o.Plant_id=$old AND o.Amount>0 LIMIT 1"):mysqli_query($conn,"SELECT DISTINCT p.Plant_ID,p.Plant_name,p.Unit_price,o.Order_id FROM orders o JOIN plant p ON p.Plant_ID=o.Plant_id WHERE o.Customer_id=$customer_id AND o.Amount>0 ORDER BY o.Order_id DESC");
-$available=mysqli_query($conn,"SELECT Plant_ID,Plant_name,Unit_price,Stock_quantity FROM plant WHERE Stock_quantity>0 ORDER BY Plant_name");
+
+
+/*
+|--------------------------------------------------------------------------
+| CUSTOMER'S PURCHASED PLANTS
+|--------------------------------------------------------------------------
+*/
+
+$owned = mysqli_query(
+    $conn,
+    "
+    SELECT DISTINCT
+        p.Plant_ID,
+        p.Plant_name,
+        p.Unit_price
+    FROM plant p
+    INNER JOIN orders o
+        ON o.Plant_id = p.Plant_ID
+    WHERE o.Customer_id = $customer_id
+      AND o.Amount > 0
+    ORDER BY p.Plant_name
+    "
+);
+
+
+/*
+|--------------------------------------------------------------------------
+| AVAILABLE PLANTS
+|--------------------------------------------------------------------------
+*/
+
+$available = mysqli_query(
+    $conn,
+    "
+    SELECT
+        Plant_ID,
+        Plant_name,
+        Unit_price,
+        Stock_quantity
+    FROM plant
+    WHERE Stock_quantity > 0
+    ORDER BY Plant_name
+    "
+);
+
 ?>
-<!doctype html><html><head><meta charset="utf-8"><title>Plant Exchange - Plant Hub</title><style>
-body{font-family:Segoe UI,sans-serif;background:#eef7f2;margin:0;color:#1e293b}.box{max-width:600px;margin:40px auto;background:#fff;padding:28px;border-radius:14px}.back{color:#0284c7;font-weight:700;text-decoration:none}.success{background:#dcfce7;color:#166534;padding:12px;border-radius:8px}.error{background:#fee2e2;color:#991b1b;padding:12px;border-radius:8px}.info{background:#eff6ff;color:#1e40af;padding:12px;border-radius:8px;margin:15px 0}label{display:block;font-weight:700;margin-top:15px}select,button{width:100%;box-sizing:border-box;padding:11px;margin-top:7px;border-radius:7px}button{background:#10b981;color:#fff;border:0;font-weight:700}</style></head><body>
-<?php if(file_exists("header.php"))include"header.php";?><div class="box"><a class="back" href="my_orders.php">← Back to My Orders</a><h2>🔄 Request Plant Exchange</h2>
-<?php if($message):?><div class="success"><?=htmlspecialchars($message)?></div><?php endif;?><?php if($error):?><div class="error"><?=htmlspecialchars($error)?></div><?php endif;?>
-<div class="info"><b>Process:</b> Request → Employee Approval → Customer Completes.<br>Higher price: extra amount is paid by COD. Lower price: refund goes to store wallet.</div>
-<form method="post"><input type="hidden" name="order_id" value="<?=$order?>">
-<label>Current Plant</label><select name="offered_plant_id" required><option value="">Select purchased plant</option><?php if($owned)while($p=mysqli_fetch_assoc($owned)):?><option value="<?=$p["Plant_ID"]?>" <?=((int)$p["Plant_ID"]===$old?"selected":"")?>><?=htmlspecialchars($p["Plant_name"])?> — ৳<?=number_format((float)$p["Unit_price"],2)?> (Order #<?=$p["Order_id"]?>)</option><?php endwhile;?></select>
-<label>Plant to Receive</label><select name="received_plant_id" required><option value="">Select target plant</option><?php if($available)while($p=mysqli_fetch_assoc($available)):?><option value="<?=$p["Plant_ID"]?>"><?=htmlspecialchars($p["Plant_name"])?> — ৳<?=number_format((float)$p["Unit_price"],2)?> (Stock: <?=$p["Stock_quantity"]?>)</option><?php endwhile;?></select>
-<button name="submit_exchange">Submit Exchange Request</button></form></div></body></html>
+
+<!DOCTYPE html>
+
+<html lang="en">
+
+<head>
+
+<meta charset="UTF-8">
+
+<meta
+    name="viewport"
+    content="width=device-width, initial-scale=1.0"
+>
+
+<title>Plant Exchange - Plant Hub</title>
+
+<style>
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    font-family: "Segoe UI", Arial, sans-serif;
+    background: #eef7f2;
+    margin: 0;
+    color: #1e293b;
+}
+
+.box {
+    max-width: 620px;
+    margin: 40px auto;
+    background: #ffffff;
+    padding: 30px;
+    border-radius: 14px;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.07);
+}
+
+.back {
+    display: inline-block;
+    margin-bottom: 18px;
+    color: #0284c7;
+    text-decoration: none;
+    font-weight: 700;
+}
+
+h2 {
+    color: #065f46;
+    margin-top: 0;
+}
+
+.description {
+    color: #64748b;
+    line-height: 1.6;
+}
+
+.info {
+    background: #eff6ff;
+    color: #1d4ed8;
+    padding: 13px;
+    border-radius: 8px;
+    margin: 15px 0;
+    line-height: 1.5;
+}
+
+.success {
+    background: #dcfce7;
+    color: #166534;
+    padding: 13px;
+    border-radius: 8px;
+    margin: 15px 0;
+    line-height: 1.5;
+}
+
+.error {
+    background: #fee2e2;
+    color: #991b1b;
+    padding: 13px;
+    border-radius: 8px;
+    margin: 15px 0;
+    line-height: 1.5;
+}
+
+label {
+    display: block;
+    font-weight: 700;
+    margin-top: 18px;
+}
+
+select {
+    width: 100%;
+    padding: 12px;
+    margin-top: 7px;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    background: #ffffff;
+    font-size: 14px;
+}
+
+button {
+    width: 100%;
+    padding: 12px;
+    margin-top: 22px;
+    border: 0;
+    border-radius: 8px;
+    background: #10b981;
+    color: #ffffff;
+    font-weight: 700;
+    font-size: 15px;
+    cursor: pointer;
+}
+
+button:hover {
+    background: #059669;
+}
+
+.note {
+    margin-top: 18px;
+    font-size: 13px;
+    color: #64748b;
+    line-height: 1.6;
+}
+
+</style>
+
+</head>
+
+<body>
+
+<?php
+
+if (file_exists("header.php")) {
+    include "header.php";
+}
+
+?>
+
+<div class="box">
+
+    <a
+        class="back"
+        href="my_orders.php"
+    >
+        ← Back to My Orders
+    </a>
+
+    <h2>
+        🔄 Request Plant Exchange
+    </h2>
+
+    <p class="description">
+        Select the plant you purchased and the plant you want to
+        receive. Your request will first be sent to an employee
+        for approval.
+    </p>
+
+
+    <?php if ($order_id > 0): ?>
+
+        <div class="info">
+
+            <strong>
+                Order #<?= htmlspecialchars((string) $order_id) ?>
+            </strong>
+
+            <br>
+
+            This exchange request is linked to your selected order.
+
+        </div>
+
+    <?php endif; ?>
+
+
+    <?php if ($message): ?>
+
+        <div class="success">
+            <?= htmlspecialchars($message) ?>
+        </div>
+
+    <?php endif; ?>
+
+
+    <?php if ($error): ?>
+
+        <div class="error">
+            <?= htmlspecialchars($error) ?>
+        </div>
+
+    <?php endif; ?>
+
+
+    <form
+        method="POST"
+        action="process_exchanges.php"
+    >
+
+        <input
+            type="hidden"
+            name="order_id"
+            value="<?= (int) $order_id ?>"
+        >
+
+
+        <label for="offered_plant_id">
+            Current Plant You Own
+        </label>
+
+        <select
+            id="offered_plant_id"
+            name="offered_plant_id"
+            required
+        >
+
+            <option value="">
+                Select your plant
+            </option>
+
+
+            <?php if ($owned): ?>
+
+                <?php while ($p = mysqli_fetch_assoc($owned)): ?>
+
+                    <?php
+
+                    $selected =
+                        (
+                            (int) $p["Plant_ID"]
+                            === (int) $offered_from_order
+                        )
+                        ? "selected"
+                        : "";
+
+                    ?>
+
+                    <option
+                        value="<?= (int) $p["Plant_ID"] ?>"
+                        <?= $selected ?>
+                    >
+
+                        <?= htmlspecialchars($p["Plant_name"]) ?>
+
+                        —
+                        ৳<?= number_format(
+                            (float) $p["Unit_price"],
+                            2
+                        ) ?>
+
+                    </option>
+
+                <?php endwhile; ?>
+
+            <?php endif; ?>
+
+        </select>
+
+
+        <label for="received_plant_id">
+            Plant You Want to Receive
+        </label>
+
+        <select
+            id="received_plant_id"
+            name="received_plant_id"
+            required
+        >
+
+            <option value="">
+                Select target plant
+            </option>
+
+
+            <?php if ($available): ?>
+
+                <?php while ($p = mysqli_fetch_assoc($available)): ?>
+
+                    <option
+                        value="<?= (int) $p["Plant_ID"] ?>"
+                    >
+
+                        <?= htmlspecialchars($p["Plant_name"]) ?>
+
+                        —
+                        ৳<?= number_format(
+                            (float) $p["Unit_price"],
+                            2
+                        ) ?>
+
+                        (Stock:
+                        <?= (int) $p["Stock_quantity"] ?>)
+
+                    </option>
+
+                <?php endwhile; ?>
+
+            <?php endif; ?>
+
+        </select>
+
+
+        <button
+            type="submit"
+            name="submit_exchange"
+        >
+            Submit Exchange Request
+        </button>
+
+    </form>
+
+
+    <div class="note">
+
+        <strong>Price adjustment:</strong>
+
+        <br>
+
+        • If the new plant costs more, the extra amount will be
+        payable by <strong>Cash on Delivery</strong> after approval.
+
+        <br>
+
+        • If the new plant costs less, the difference will be added
+        to your <strong>Store Wallet</strong> after the exchange
+        is completed.
+
+        <br>
+
+        • No payment, wallet credit, or stock change happens when
+        the request is submitted.
+
+        <br>
+
+        • An employee must approve the request first.
+
+    </div>
+
+</div>
+
+</body>
+
+</html>
