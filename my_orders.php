@@ -5,66 +5,54 @@ if (session_status() === PHP_SESSION_NONE) {
 
 include("DBconnect.php");
 
-/* =========================================================
-   1. GET AND SANITIZE CUSTOMER ID
-========================================================= */
-
-// Check role: prevent employee sessions from viewing customer orders
-$role = $_SESSION['role'] ?? '';
-
-// Grab standard customer session keys
-$raw_id = $_SESSION['customer_id'] 
-       ?? $_SESSION['Customer_id'] 
-       ?? $_SESSION['Customer_ID'] 
-       ?? $_SESSION['user_id'] 
-       ?? $_SESSION['id'] 
-       ?? null;
-
-// Clean non-numeric characters (e.g., converts 'C5' or 'c-5' to 5)
-$clean_customer_id = 0;
-if (!empty($raw_id)) {
-    $clean_customer_id = (int) preg_replace('/[^0-9]/', '', (string)$raw_id);
-}
-
-// Redirect to login if invalid customer ID or wrong role
-if ($clean_customer_id <= 0) {
+/*
+|--------------------------------------------------------------------------
+| CUSTOMER LOGIN CHECK
+|--------------------------------------------------------------------------
+*/
+if (!isset($_SESSION['customer_id']) || (int)$_SESSION['customer_id'] <= 0) {
     header("Location: login.php");
-    exit;
+    exit();
 }
 
-/* =========================================================
-   2. FETCH CUSTOMER ORDERS
-========================================================= */
+$customer_id = (int)$_SESSION['customer_id'];
 
+/*
+|--------------------------------------------------------------------------
+| GET THIS CUSTOMER'S ORDERS ONLY
+|--------------------------------------------------------------------------
+*/
 $query = "
     SELECT
-        o.*,
+        o.Order_id,
+        o.Customer_id,
+        o.Plant_id,
+        o.Amount,
+        o.Order_date,
+        o.Exchange_status,
+        o.points_redeemed,
         p.Plant_name,
         p.Unit_price
     FROM orders o
     LEFT JOIN plant p
         ON o.Plant_id = p.Plant_ID
-    WHERE o.Customer_id = ?
+    WHERE o.Customer_id = $customer_id
     ORDER BY o.Order_id DESC
 ";
 
-$stmt = mysqli_prepare($conn, $query);
+$result = mysqli_query($conn, $query);
 
-if ($stmt) {
-    mysqli_stmt_bind_param($stmt, "i", $clean_customer_id);
-    mysqli_stmt_execute($stmt);
-    $result = mysqli_stmt_get_result($stmt);
-} else {
-    $result = false;
+if (!$result) {
+    die("Database error: " . mysqli_error($conn));
 }
 ?>
 
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
     <title>My Orders - Plant Hub</title>
 
     <style>
@@ -72,6 +60,7 @@ if ($stmt) {
             font-family: 'Segoe UI', sans-serif;
             background: #eef7f2;
             margin: 0;
+            padding: 0;
             color: #1e293b;
         }
 
@@ -84,9 +73,8 @@ if ($stmt) {
         .card {
             background: white;
             padding: 25px;
-            border-radius: 14px;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.05);
-            border: 1px solid #e2e8f0;
+            border-radius: 12px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.05);
         }
 
         h2 {
@@ -102,7 +90,7 @@ if ($stmt) {
 
         .orders-table th,
         .orders-table td {
-            padding: 13px 12px;
+            padding: 13px;
             text-align: left;
             border-bottom: 1px solid #e2e8f0;
         }
@@ -110,26 +98,19 @@ if ($stmt) {
         .orders-table th {
             background: #f8fafc;
             color: #334155;
-            font-weight: 700;
-        }
-
-        .orders-table tr:hover {
-            background: #f8fffb;
         }
 
         .status-badge {
             display: inline-block;
-            background: #d1fae5;
-            color: #065f46;
             padding: 5px 10px;
             border-radius: 12px;
-            font-size: 12px;
+            font-size: 13px;
             font-weight: bold;
         }
 
         .status-none {
-            background: #f1f5f9;
-            color: #475569;
+            background: #dcfce7;
+            color: #166534;
         }
 
         .status-pending {
@@ -138,33 +119,32 @@ if ($stmt) {
         }
 
         .status-completed {
-            background: #dcfce7;
-            color: #166534;
+            background: #dbeafe;
+            color: #1d4ed8;
         }
 
         .exchange-btn {
             display: inline-block;
-            background: #0284c7;
+            background: #10b981;
             color: white;
             text-decoration: none;
             padding: 8px 13px;
             border-radius: 7px;
-            font-weight: 700;
+            font-weight: bold;
             font-size: 13px;
-            transition: 0.2s;
         }
 
         .exchange-btn:hover {
-            background: #0369a1;
+            background: #059669;
         }
 
         .disabled-btn {
             display: inline-block;
-            background: #e2e8f0;
-            color: #64748b;
+            background: #cbd5e1;
+            color: #475569;
             padding: 8px 13px;
             border-radius: 7px;
-            font-weight: 600;
+            font-weight: bold;
             font-size: 13px;
         }
 
@@ -174,25 +154,18 @@ if ($stmt) {
             padding: 30px;
         }
 
-        .amount {
-            color: #10b981;
-            font-weight: bold;
-        }
-
-        @media (max-width: 800px) {
+        @media (max-width: 700px) {
             .orders-table {
                 font-size: 13px;
             }
 
             .orders-table th,
             .orders-table td {
-                padding: 9px 7px;
+                padding: 8px;
             }
 
-            .exchange-btn,
-            .disabled-btn {
-                padding: 7px 9px;
-                font-size: 12px;
+            .container {
+                padding: 0 10px;
             }
         }
     </style>
@@ -200,156 +173,127 @@ if ($stmt) {
 
 <body>
 
-<?php 
-if (file_exists("header.php")) {
-    include("header.php");
-} 
-?>
+<?php include("header.php"); ?>
 
 <div class="container">
+
     <div class="card">
+
         <h2>My Orders 📦</h2>
-        <p style="color:#64748b;">
-            View your purchases and request a plant exchange when needed.
-        </p>
 
         <table class="orders-table">
+
             <thead>
                 <tr>
                     <th>Order #</th>
                     <th>Plant Name</th>
                     <th>Amount Paid</th>
                     <th>Points Redeemed</th>
-                    <th>Status</th>
-                    <th>Exchange</th>
+                    <th>Exchange Status</th>
+                    <th>Action</th>
                 </tr>
             </thead>
+
             <tbody>
-            <?php if ($result && mysqli_num_rows($result) > 0): ?>
+
+            <?php if (mysqli_num_rows($result) > 0): ?>
+
                 <?php while ($row = mysqli_fetch_assoc($result)): ?>
+
                     <?php
-                    $order_id = $row['Order_id']
-                        ?? $row['order_id']
-                        ?? $row['Order_ID']
-                        ?? 0;
+                    $order_id = (int)$row['Order_id'];
+                    $plant_id = (int)$row['Plant_id'];
 
-                    $plant_id = $row['Plant_id']
-                        ?? $row['Plant_ID']
-                        ?? $row['plant_id']
-                        ?? 0;
+                    $plant_name = $row['Plant_name'] ?? 'Unknown Plant';
 
-                    $plant_name = $row['Plant_name']
-                        ?? $row['plant_name']
-                        ?? 'Unknown Plant';
+                    $amount = (float)($row['Amount'] ?? 0);
 
-                    $amount = $row['Amount']
-                        ?? $row['amount']
-                        ?? $row['Total_amount']
-                        ?? 0;
+                    $points = (int)($row['points_redeemed'] ?? 0);
 
-                    $points = $row['points_redeemed']
-                        ?? $row['Points_redeemed']
-                        ?? 0;
+                    $exchange_status = $row['Exchange_status'] ?? 'None';
 
-                    $exchange_status = $row['Exchange_status']
-                        ?? $row['exchange_status']
-                        ?? 'None';
+                    $status_class = 'status-none';
+
+                    if (strcasecmp($exchange_status, 'Pending') === 0) {
+                        $status_class = 'status-pending';
+                    }
+
+                    if (strcasecmp($exchange_status, 'Completed') === 0) {
+                        $status_class = 'status-completed';
+                    }
                     ?>
 
                     <tr>
-                        <!-- ORDER ID -->
+
                         <td>
-                            <strong>
-                                #<?php echo htmlspecialchars($order_id); ?>
-                            </strong>
+                            <strong>#<?= $order_id ?></strong>
                         </td>
 
-                        <!-- PLANT -->
                         <td>
-                            🌱 <?php echo htmlspecialchars($plant_name); ?>
+                            <?= htmlspecialchars($plant_name) ?>
                         </td>
 
-                        <!-- AMOUNT -->
-                        <td class="amount">
-                            ৳<?php echo number_format((float)$amount, 2); ?>
+                        <td style="color:#10b981;font-weight:bold;">
+                            ৳<?= number_format($amount, 2) ?>
                         </td>
 
-                        <!-- POINTS -->
                         <td>
-                            <?php echo (int)$points; ?> PTS
+                            <?= $points ?> PTS
                         </td>
 
-                        <!-- STATUS -->
                         <td>
-                            <?php
-                            $status_lower = strtolower(trim((string)$exchange_status));
-
-                            if ($status_lower === 'pending'):
-                            ?>
-                                <span class="status-badge status-pending">
-                                    Exchange Pending
-                                </span>
-                            <?php elseif ($status_lower === 'completed'): ?>
-                                <span class="status-badge status-completed">
-                                    Exchange Completed
-                                </span>
-                            <?php else: ?>
-                                <span class="status-badge status-none">
-                                    No Exchange
-                                </span>
-                            <?php endif; ?>
+                            <span class="status-badge <?= $status_class ?>">
+                                <?= htmlspecialchars($exchange_status) ?>
+                            </span>
                         </td>
 
-                        <!-- EXCHANGE BUTTON -->
                         <td>
+
                             <?php if (
-                                $status_lower !== 'pending' &&
-                                $status_lower !== 'completed' &&
-                                (int)$plant_id > 0
+                                strcasecmp($exchange_status, 'None') === 0 ||
+                                strcasecmp($exchange_status, '') === 0
                             ): ?>
+
                                 <a
-                                    href="process_exchanges.php?order_id=<?php echo (int)$order_id; ?>&offered_plant_id=<?php echo (int)$plant_id; ?>"
+                                    href="process_exchanges.php?order_id=<?= $order_id ?>"
                                     class="exchange-btn"
                                 >
                                     🔄 Exchange
                                 </a>
-                            <?php elseif ($status_lower === 'pending'): ?>
-                                <span class="disabled-btn">
-                                    ⏳ Pending
-                                </span>
-                            <?php elseif ($status_lower === 'completed'): ?>
-                                <span class="disabled-btn">
-                                    ✓ Done
-                                </span>
+
                             <?php else: ?>
+
                                 <span class="disabled-btn">
-                                    Not Available
+                                    Exchange <?= htmlspecialchars($exchange_status) ?>
                                 </span>
+
                             <?php endif; ?>
+
                         </td>
+
                     </tr>
+
                 <?php endwhile; ?>
+
             <?php else: ?>
+
                 <tr>
                     <td colspan="6" class="empty">
                         No order history found.
                         <br><br>
-                        <a href="shop.php" style="color: #065f46; font-weight: bold;">
-                            Start Shopping 🌱
-                        </a>
+                        <a href="shop.php">Start shopping 🌿</a>
                     </td>
                 </tr>
-            <?php endif; ?>
-            </tbody>
-        </table>
-    </div>
-</div>
 
-<?php 
-if (file_exists("footer.php")) {
-    include("footer.php");
-} 
-?>
+            <?php endif; ?>
+
+            </tbody>
+
+        </table>
+
+    </div>
+
+</div>
 
 </body>
 </html>
