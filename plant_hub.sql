@@ -28,7 +28,7 @@ SET time_zone = "+00:00";
 --
 
 CREATE TABLE `category` (
-  `Category_ID` int(11) NOT NULL,
+  `Category_ID` int(11) NOT NULL AUTO_INCREMENT,
   `Category_name` varchar(100) DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
@@ -127,7 +127,9 @@ CREATE TABLE `exchange` (
   `Offered_plant_ID` int(11) DEFAULT NULL,
   `status` varchar(50) DEFAULT 'Pending',
   `payment_method` varchar(50) DEFAULT 'N/A',
-  `payment_status` varchar(50) DEFAULT 'Pending'
+  `payment_status` varchar(50) DEFAULT 'Pending',
+  `adjustment_direction` varchar(50) DEFAULT 'No Adjustment',
+  `notes` varchar(500) DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 --
@@ -241,7 +243,7 @@ INSERT INTO `orders` (`Order_id`, `Customer_id`, `Plant_id`, `Amount`, `Order_da
 --
 
 CREATE TABLE `plant` (
-  `Plant_ID` int(11) NOT NULL,
+  `Plant_ID` int(11) NOT NULL AUTO_INCREMENT,
   `Plant_name` varchar(100) DEFAULT NULL,
   `Unit_price` decimal(10,2) DEFAULT NULL,
   `Stock_quantity` int(11) DEFAULT 0,
@@ -310,7 +312,7 @@ CREATE TABLE `plant_exchange` (
 --
 
 CREATE TABLE `purchase` (
-  `Purchase_ID` int(11) NOT NULL,
+  `Purchase_ID` int(11) NOT NULL AUTO_INCREMENT,
   `Purchase_date` date DEFAULT NULL,
   `Supplier_ID` int(11) DEFAULT NULL,
   `Employee_ID` int(11) DEFAULT NULL
@@ -336,7 +338,7 @@ CREATE TABLE `purchase_contains_plant` (
 --
 
 CREATE TABLE `purchase_transaction` (
-  `Purchase_ID` int(11) NOT NULL,
+  `Purchase_ID` int(11) NOT NULL AUTO_INCREMENT,
   `Purchase_date` date NOT NULL,
   `Total_amount` decimal(10,2) NOT NULL,
   `Supplier_ID` int(11) DEFAULT NULL,
@@ -351,7 +353,7 @@ CREATE TABLE `purchase_transaction` (
 --
 
 CREATE TABLE `sale` (
-  `Sale_ID` int(11) NOT NULL,
+  `Sale_ID` int(11) NOT NULL AUTO_INCREMENT,
   `Sale_date` date DEFAULT NULL,
   `Customer_ID` int(11) DEFAULT NULL,
   `Employee_ID` int(11) DEFAULT NULL
@@ -364,7 +366,7 @@ CREATE TABLE `sale` (
 --
 
 CREATE TABLE `sales_transaction` (
-  `Txn_ID` int(11) NOT NULL,
+  `Txn_ID` int(11) NOT NULL AUTO_INCREMENT,
   `Txn_date` date NOT NULL,
   `Total_amount` decimal(10,2) NOT NULL,
   `Customer_ID` int(11) DEFAULT NULL,
@@ -413,7 +415,7 @@ INSERT INTO `services` (`service_id`, `service_type`, `customer_name`, `status`,
 --
 
 CREATE TABLE `supplier` (
-  `Supplier_ID` int(11) NOT NULL,
+  `Supplier_ID` int(11) NOT NULL AUTO_INCREMENT,
   `Supplier_name` varchar(100) DEFAULT NULL,
   `Email` varchar(100) DEFAULT NULL,
   `Address` varchar(200) DEFAULT NULL,
@@ -567,6 +569,48 @@ ALTER TABLE `exchange`
 --
 ALTER TABLE `orders`
   MODIFY `Order_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=67;
+
+--
+-- AUTO_INCREMENT for table `category`
+--
+ALTER TABLE `category`
+  MODIFY `Category_ID` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=5;
+
+--
+-- AUTO_INCREMENT for table `plant`
+--
+ALTER TABLE `plant`
+  MODIFY `Plant_ID` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=6;
+
+--
+-- AUTO_INCREMENT for table `purchase`
+--
+ALTER TABLE `purchase`
+  MODIFY `Purchase_ID` int(11) NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT for table `purchase_transaction`
+--
+ALTER TABLE `purchase_transaction`
+  MODIFY `Purchase_ID` int(11) NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT for table `sale`
+--
+ALTER TABLE `sale`
+  MODIFY `Sale_ID` int(11) NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT for table `sales_transaction`
+--
+ALTER TABLE `sales_transaction`
+  MODIFY `Txn_ID` int(11) NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT for table `supplier`
+--
+ALTER TABLE `supplier`
+  MODIFY `Supplier_ID` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=3;
 
 --
 -- AUTO_INCREMENT for table `plants`
