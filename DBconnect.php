@@ -4,20 +4,20 @@
 $servername = "localhost";
 $username   = "root";
 $password   = "";
-$dbname     = "plant_hub"; // Update this if your database name is different
+$dbname     = "plant_hub";
 
-// Turn off fatal SQL exception throws for PHP 8.1+ compatibility
 mysqli_report(MYSQLI_REPORT_OFF);
 
-// Create MySQL connection
 $conn = mysqli_connect($servername, $username, $password, $dbname);
 
-// Check connection status
 if (!$conn) {
     die("Database Connection Failed: " . mysqli_connect_error());
 }
 
-// 1. Auto-create audit_log table for employee tracking (matching updated schema)
+/*
+ * Create supporting tables if they do not already exist.
+ * These checks are safe to run on every page load.
+ */
 @mysqli_query($conn, "CREATE TABLE IF NOT EXISTS `audit_log` (
     `Log_id` INT AUTO_INCREMENT PRIMARY KEY,
     `Employee_id` INT NOT NULL,
@@ -29,15 +29,6 @@ if (!$conn) {
     KEY `idx_action` (`Action_type`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci");
 
-// Backward compatibility check: copy old `audit_logs` data if present
-@mysqli_query($conn, "INSERT INTO `audit_log` (`Employee_id`, `Action_type`, `Details`, `Reference_id`, `Timestamp`) 
-                      SELECT `employee_id`, `action_type`, `description`, `reference_id`, `created_at` FROM `audit_logs`");
-
-// Ensure transaction tables have Employee_id columns
-@mysqli_query($conn, "ALTER TABLE `purchase_transaction` ADD COLUMN `Employee_id` INT DEFAULT NULL");
-@mysqli_query($conn, "ALTER TABLE `orders` ADD COLUMN `Employee_id` INT DEFAULT NULL");
-
-// 2. Auto-create loyalty_logs table for points tracking
 @mysqli_query($conn, "CREATE TABLE IF NOT EXISTS `loyalty_logs` (
     `log_id` INT AUTO_INCREMENT PRIMARY KEY,
     `user_id` INT NOT NULL,
@@ -50,85 +41,122 @@ if (!$conn) {
     KEY `idx_type` (`transaction_type`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci");
 
+/*
+ * Add columns only when they are missing. This keeps existing installations
+ * working without repeatedly attempting the same ALTER TABLE statement.
+ */
+$column_checks = [
+    ['table' => 'purchase_transaction', 'column' => 'Employee_id', 'definition' => 'INT DEFAULT NULL'],
+    ['table' => 'orders', 'column' => 'Employee_id', 'definition' => 'INT DEFAULT NULL'],
+    ['table' => 'exchange', 'column' => 'Order_ID', 'definition' => 'INT DEFAULT NULL AFTER exchange_id']
+];
+
+foreach ($column_checks as $check) {
+    $table = $check['table'];
+    $column = $check['column'];
+    $definition = $check['definition'];
+
+    $table_e = mysqli_real_escape_string($conn, $table);
+    $column_e = mysqli_real_escape_string($conn, $column);
+
+    $exists = mysqli_query($conn, "SELECT COUNT(*) AS cnt
+        FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = '$table_e'
+          AND COLUMN_NAME = '$column_e'");
+
+    if ($exists && (int)mysqli_fetch_assoc($exists)['cnt'] === 0) {
+        @mysqli_query($conn, "ALTER TABLE `$table` ADD COLUMN `$column` $definition");
+    }
+}
+
 /**
- * Helper Function: Process & Award Loyalty Points
- * Earns 10 points for every complete ৳500 spent per order.
+ * Earn 10 loyalty points for every complete ৳500 spent on an order.
  */
 function processOrderLoyaltyPoints($conn, $user_id, $order_id, $total_amount) {
     $uid = (int)$user_id;
-    $points_earned = (int)floor($total_amount / 500) * 10;
-    
-    if ($points_earned > 0 && $uid > 0) {
-        // Update customer points balance
-        mysqli_query($conn, "UPDATE customer SET points = COALESCE(points, 0) + $points_earned WHERE Customer_ID = $uid");
+    $oid = (int)$order_id;
+    $points_earned = (int)floor((float)$total_amount / 500) * 10;
 
-        // Record entry in loyalty_logs
-        $oid = $order_id ? (int)$order_id : "NULL";
-        $desc = mysqli_real_escape_string($conn, "Earned $points_earned points from Order #$order_id");
-        mysqli_query($conn, "INSERT INTO loyalty_logs (user_id, order_id, points, transaction_type, description) 
-                    VALUES ($uid, $oid, $points_earned, 'EARNED', '$desc')");
+    if ($points_earned > 0 && $uid > 0) {
+        mysqli_query($conn, "UPDATE customer
+            SET points = COALESCE(points, 0) + $points_earned,
+                Loyalty_points = COALESCE(Loyalty_points, 0) + $points_earned
+            WHERE Customer_ID = $uid");
+
+        $desc = mysqli_real_escape_string($conn, "Earned $points_earned points from Order #$oid");
+        mysqli_query($conn, "INSERT INTO loyalty_logs
+            (user_id, order_id, points, transaction_type, description)
+            VALUES ($uid, $oid, $points_earned, 'EARNED', '$desc')");
     }
+
     return $points_earned;
 }
 
 /**
- * Helper Function: Redeem Loyalty Points
- * Deducts points from customer balance and logs the redemption.
+ * Redeem loyalty points from a customer's balance.
  */
 function redeemLoyaltyPoints($conn, $user_id, $order_id, $points_to_redeem) {
-    if ($points_to_redeem <= 0 || !$user_id) return 0;
-    
     $uid = (int)$user_id;
+    $oid = (int)$order_id;
     $pts = (int)$points_to_redeem;
-    
-    // Check current balance
+
+    if ($uid <= 0 || $pts <= 0) {
+        return 0;
+    }
+
     $res = mysqli_query($conn, "SELECT points FROM customer WHERE Customer_ID = $uid LIMIT 1");
-    if (!$res || !($row = mysqli_fetch_assoc($res))) return 0;
-    
+    if (!$res || !($row = mysqli_fetch_assoc($res))) {
+        return 0;
+    }
+
     $current = (int)($row['points'] ?? 0);
     $actual_redeem = min($pts, $current);
-    
-    if ($actual_redeem <= 0) return 0;
-    
-    // Deduct points from balance
-    mysqli_query($conn, "UPDATE customer SET points = GREATEST(0, points - $actual_redeem) WHERE Customer_ID = $uid");
-    
-    // Log redemption in loyalty_logs
-    $oid = $order_id ? (int)$order_id : "NULL";
-    $desc = mysqli_real_escape_string($conn, "Redeemed $actual_redeem points on Order #$order_id (discount applied)");
-    mysqli_query($conn, "INSERT INTO loyalty_logs (user_id, order_id, points, transaction_type, description) 
-                VALUES ($uid, $oid, $actual_redeem, 'REDEEMED', '$desc')");
-    
+
+    if ($actual_redeem <= 0) {
+        return 0;
+    }
+
+    mysqli_query($conn, "UPDATE customer
+        SET points = GREATEST(0, points - $actual_redeem),
+            Loyalty_points = GREATEST(0, Loyalty_points - $actual_redeem)
+        WHERE Customer_ID = $uid");
+
+    $desc = mysqli_real_escape_string($conn, "Redeemed $actual_redeem points on Order #$oid (discount applied)");
+    mysqli_query($conn, "INSERT INTO loyalty_logs
+        (user_id, order_id, points, transaction_type, description)
+        VALUES ($uid, $oid, $actual_redeem, 'REDEEMED', '$desc')");
+
     return $actual_redeem;
 }
 
 /**
- * Helper Function: Employee Audit Trail Logger
- * Auto-detects active Employee session if null, logs actions into audit_log table.
+ * Employee audit logger.
  */
 function logEmployeeAction($conn, $action_type, $description, $reference_id = null, $employee_id = null) {
     if (session_status() === PHP_SESSION_NONE) {
         session_start();
     }
 
-    // Resolve employee ID automatically if not passed explicitly
     if ($employee_id === null) {
-        $raw_emp = $_SESSION['Employee_id'] ?? $_SESSION['employee_id'] ?? $_SESSION['user_id'] ?? 1;
-        $employee_id = (int) preg_replace('/[^0-9]/', '', (string)$raw_emp);
+        $raw_emp = $_SESSION['employee_id'] ?? $_SESSION['Employee_id'] ?? null;
+        $employee_id = (int)preg_replace('/[^0-9]/', '', (string)$raw_emp);
     }
 
-    $emp_id = $employee_id > 0 ? $employee_id : 1;
+    if ($employee_id <= 0) {
+        return false;
+    }
+
+    $emp_id = (int)$employee_id;
     $action = mysqli_real_escape_string($conn, $action_type);
     $desc   = mysqli_real_escape_string($conn, $description);
     $ref    = ($reference_id !== null) ? (int)$reference_id : "NULL";
 
-    $sql = "INSERT INTO audit_log (Employee_id, Action_type, Details, Reference_id) 
-            VALUES ($emp_id, '$action', '$desc', $ref)";
-            
-    return mysqli_query($conn, $sql);
+    return mysqli_query($conn, "INSERT INTO audit_log
+        (Employee_id, Action_type, Details, Reference_id)
+        VALUES ($emp_id, '$action', '$desc', $ref)");
 }
 
-// Alias function for compatibility
 function log_audit_trail($conn, $action_type, $details, $reference_id = null) {
     return logEmployeeAction($conn, $action_type, $details, $reference_id);
 }

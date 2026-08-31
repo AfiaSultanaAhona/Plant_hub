@@ -7,8 +7,9 @@ include("DBconnect.php");
 // 1. Resolve customer ID correctly from session
 $raw_id = $_SESSION['customer_id'] ?? $_SESSION['user_id'] ?? $_SESSION['Customer_ID'] ?? null;
 $customer_id = (int) preg_replace('/[^0-9]/', '', (string)$raw_id);
-if ($customer_id <= 0) {
-    $customer_id = 1; // Default fallback for testing
+if ($customer_id <= 0 || ($_SESSION['role'] ?? '') !== 'customer') {
+    header("Location: login.php");
+    exit;
 }
 
 // 2. Handle Cart Quantity Adjustments (+ / -)

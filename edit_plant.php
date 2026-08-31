@@ -15,7 +15,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_plant'])) {
     $price = (float)$_POST['price'];
     $stock = (int)$_POST['stock_quantity'];
 
-    $update_sql = "UPDATE plant SET Plant_name = '$name', Category_ID = $cat_id, Price = $price, Stock_quantity = $stock WHERE Plant_ID = $pid";
+    $update_sql = "UPDATE plant SET Plant_name = '$name', Category_ID = $cat_id, Unit_price = $price, Stock_quantity = $stock WHERE Plant_ID = $pid";
     if (mysqli_query($conn, $update_sql)) {
         header("Location: employee_dashboard.php?view=inventory&msg=updated");
         exit;
@@ -69,7 +69,7 @@ if (!$plant) {
         </div>
         <div class="form-group">
             <label>Price (৳)</label>
-            <input type="number" step="0.01" name="price" value="<?php echo $plant['Price'] ?? 0; ?>" required>
+            <input type="number" step="0.01" name="price" value="<?php echo $plant['Unit_price'] ?? 0; ?>" required>
         </div>
         <div class="form-group">
             <label>Stock Quantity</label>
