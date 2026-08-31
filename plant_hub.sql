@@ -3,9 +3,9 @@
 -- https://www.phpmyadmin.net/
 --
 -- Host: 127.0.0.1
--- Generation Time: Aug 25, 2026 at 06:42 PM
+-- Generation Time: Aug 31, 2026 at 08:44 PM
 -- Server version: 10.4.32-MariaDB
--- PHP Version: 8.2.12
+-- PHP Version: 8.0.30
 
 SET SQL_MODE = "NO_AUTO_VALUE_ON_ZERO";
 START TRANSACTION;
@@ -20,27 +20,6 @@ SET time_zone = "+00:00";
 --
 -- Database: `plant_hub`
 --
-
--- --------------------------------------------------------
-
---
--- Table structure for table `category`
---
-
-CREATE TABLE `category` (
-  `Category_ID` int(11) NOT NULL AUTO_INCREMENT,
-  `Category_name` varchar(100) DEFAULT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
---
--- Dumping data for table `category`
---
-
-INSERT INTO `category` (`Category_ID`, `Category_name`) VALUES
-(1, 'Indoor Plants'),
-(2, 'Outdoor Plants'),
-(3, 'Flowering Plants'),
-(4, 'Sunflower1');
 
 -- --------------------------------------------------------
 
@@ -136,17 +115,17 @@ CREATE TABLE `exchange` (
 -- Dumping data for table `exchange`
 --
 
-INSERT INTO `exchange` (`exchange_id`, `Exchange_date`, `Exchange_value`, `Received_plant_ID`, `Customer_ID`, `Employee_ID`, `Offered_plant_ID`, `status`, `payment_method`, `payment_status`) VALUES
-(1, '2026-08-22', 200.00, 1, 0, NULL, 2, 'Pending', 'N/A', 'Pending'),
-(2, '2026-08-22', 200.00, 1, 0, NULL, 2, 'Pending', 'N/A', 'Pending'),
-(3, '2026-08-22', 0.00, 2, 0, NULL, 2, 'Pending', 'N/A', 'Pending'),
-(4, '2026-08-22', 0.00, 2, 0, NULL, 2, 'Pending', 'N/A', 'Pending'),
-(5, '2026-08-22', 200.00, 1, 0, NULL, 2, 'Pending', 'N/A', 'Pending'),
-(6, '2026-08-22', -20.00, 12, 0, NULL, 2, 'Pending', 'Store Wallet Credit', 'Refunded to Wallet'),
-(7, '2026-08-22', -220.00, 12, 0, NULL, 1, 'Pending', 'Store Wallet Credit', 'Refunded to Wallet'),
-(8, '2026-08-22', -320.00, 6, 0, NULL, 1, 'Pending', 'Store Wallet Credit', 'Refunded to Wallet'),
-(9, '2026-08-22', -290.00, 14, 0, NULL, 1, 'Pending', 'Store Wallet Credit', 'Refunded to Wallet'),
-(10, '2026-08-22', -290.00, 14, 0, NULL, 1, 'Pending', 'Store Wallet Credit', 'Refunded to Wallet');
+INSERT INTO `exchange` (`exchange_id`, `Exchange_date`, `Exchange_value`, `Received_plant_ID`, `Customer_ID`, `Employee_ID`, `Offered_plant_ID`, `status`, `payment_method`, `payment_status`, `adjustment_direction`, `notes`) VALUES
+(1, '2026-08-22', 200.00, 1, 0, NULL, 2, 'Pending', 'N/A', 'Pending', 'No Adjustment', NULL),
+(2, '2026-08-22', 200.00, 1, 0, NULL, 2, 'Pending', 'N/A', 'Pending', 'No Adjustment', NULL),
+(3, '2026-08-22', 0.00, 2, 0, NULL, 2, 'Pending', 'N/A', 'Pending', 'No Adjustment', NULL),
+(4, '2026-08-22', 0.00, 2, 0, NULL, 2, 'Pending', 'N/A', 'Pending', 'No Adjustment', NULL),
+(5, '2026-08-22', 200.00, 1, 0, NULL, 2, 'Pending', 'N/A', 'Pending', 'No Adjustment', NULL),
+(6, '2026-08-22', -20.00, 12, 0, NULL, 2, 'Pending', 'Store Wallet Credit', 'Refunded to Wallet', 'No Adjustment', NULL),
+(7, '2026-08-22', -220.00, 12, 0, NULL, 1, 'Pending', 'Store Wallet Credit', 'Refunded to Wallet', 'No Adjustment', NULL),
+(8, '2026-08-22', -320.00, 6, 0, NULL, 1, 'Pending', 'Store Wallet Credit', 'Refunded to Wallet', 'No Adjustment', NULL),
+(9, '2026-08-22', -290.00, 14, 0, NULL, 1, 'Pending', 'Store Wallet Credit', 'Refunded to Wallet', 'No Adjustment', NULL),
+(10, '2026-08-22', -290.00, 14, 0, NULL, 1, 'Pending', 'Store Wallet Credit', 'Refunded to Wallet', 'No Adjustment', NULL);
 
 -- --------------------------------------------------------
 
@@ -243,7 +222,7 @@ INSERT INTO `orders` (`Order_id`, `Customer_id`, `Plant_id`, `Amount`, `Order_da
 --
 
 CREATE TABLE `plant` (
-  `Plant_ID` int(11) NOT NULL AUTO_INCREMENT,
+  `Plant_ID` int(11) NOT NULL,
   `Plant_name` varchar(100) DEFAULT NULL,
   `Unit_price` decimal(10,2) DEFAULT NULL,
   `Stock_quantity` int(11) DEFAULT 0,
@@ -257,12 +236,16 @@ CREATE TABLE `plant` (
 --
 
 INSERT INTO `plant` (`Plant_ID`, `Plant_name`, `Unit_price`, `Stock_quantity`, `Low_stock_level`, `Care_info`, `Category_ID`) VALUES
-(0, 'Monstera Delicosa', 650.00, 50, 5, 'Regular watering and adequate light.', 1),
 (1, 'Snake Plant', 500.00, 20, 5, 'Low sunlight, water once a week', 1),
 (2, 'Money Plant', 300.00, 15, 5, 'Indirect sunlight, moderate watering', 1),
 (3, 'Rose', 250.00, 10, 3, 'Needs sunlight and regular watering', 3),
 (4, 'Star plant', 370.00, 20, 5, '', 3),
-(5, 'Sunflower', 250.00, 10, 5, 'dhbhdbsdbfk', 3);
+(5, 'Sunflower', 250.00, 10, 5, 'Needs bright sunlight and regular watering', 3),
+(6, 'Snake Plant', 500.00, 20, 5, 'Low sunlight, water once a week', 1),
+(7, 'Money Plant', 300.00, 15, 5, 'Indirect sunlight, moderate watering', 1),
+(8, 'Rose', 250.00, 10, 3, 'Needs sunlight and regular watering', 3),
+(9, 'Star plant', 370.00, 20, 5, '', 3),
+(10, 'Sunflower', 250.00, 10, 5, 'Needs bright sunlight and regular watering', 3);
 
 -- --------------------------------------------------------
 
@@ -308,19 +291,6 @@ CREATE TABLE `plant_exchange` (
 -- --------------------------------------------------------
 
 --
--- Table structure for table `purchase`
---
-
-CREATE TABLE `purchase` (
-  `Purchase_ID` int(11) NOT NULL AUTO_INCREMENT,
-  `Purchase_date` date DEFAULT NULL,
-  `Supplier_ID` int(11) DEFAULT NULL,
-  `Employee_ID` int(11) DEFAULT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
--- --------------------------------------------------------
-
---
 -- Table structure for table `purchase_contains_plant`
 --
 
@@ -329,48 +299,6 @@ CREATE TABLE `purchase_contains_plant` (
   `Plant_ID` int(11) NOT NULL,
   `Quantity` int(11) DEFAULT NULL,
   `Purchase_unit_price` decimal(10,2) DEFAULT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
--- --------------------------------------------------------
-
---
--- Table structure for table `purchase_transaction`
---
-
-CREATE TABLE `purchase_transaction` (
-  `Purchase_ID` int(11) NOT NULL AUTO_INCREMENT,
-  `Purchase_date` date NOT NULL,
-  `Total_amount` decimal(10,2) NOT NULL,
-  `Supplier_ID` int(11) DEFAULT NULL,
-  `Plant_ID` int(11) DEFAULT NULL,
-  `Quantity` int(11) DEFAULT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
--- --------------------------------------------------------
-
---
--- Table structure for table `sale`
---
-
-CREATE TABLE `sale` (
-  `Sale_ID` int(11) NOT NULL AUTO_INCREMENT,
-  `Sale_date` date DEFAULT NULL,
-  `Customer_ID` int(11) DEFAULT NULL,
-  `Employee_ID` int(11) DEFAULT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
--- --------------------------------------------------------
-
---
--- Table structure for table `sales_transaction`
---
-
-CREATE TABLE `sales_transaction` (
-  `Txn_ID` int(11) NOT NULL AUTO_INCREMENT,
-  `Txn_date` date NOT NULL,
-  `Total_amount` decimal(10,2) NOT NULL,
-  `Customer_ID` int(11) DEFAULT NULL,
-  `Employee_ID` int(11) DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 -- --------------------------------------------------------
@@ -408,37 +336,9 @@ INSERT INTO `services` (`service_id`, `service_type`, `customer_name`, `status`,
 (1, 'Plant Care Consultation', 'Afia Sultana', 'Assigned', 'Ahona'),
 (2, 'Garden Installation & Setup', 'John Doe', 'In Progress', 'Ahona');
 
--- --------------------------------------------------------
-
---
--- Table structure for table `supplier`
---
-
-CREATE TABLE `supplier` (
-  `Supplier_ID` int(11) NOT NULL AUTO_INCREMENT,
-  `Supplier_name` varchar(100) DEFAULT NULL,
-  `Email` varchar(100) DEFAULT NULL,
-  `Address` varchar(200) DEFAULT NULL,
-  `Phone` varchar(20) DEFAULT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
---
--- Dumping data for table `supplier`
---
-
-INSERT INTO `supplier` (`Supplier_ID`, `Supplier_name`, `Email`, `Address`, `Phone`) VALUES
-(1, 'Green Garden Ltd.', 'green@gmail.com', 'Dhaka', '01811111111'),
-(2, 'Plant World', 'plantworld@gmail.com', 'Chittagong', '01822222222');
-
 --
 -- Indexes for dumped tables
 --
-
---
--- Indexes for table `category`
---
-ALTER TABLE `category`
-  ADD PRIMARY KEY (`Category_ID`);
 
 --
 -- Indexes for table `customer`
@@ -489,39 +389,11 @@ ALTER TABLE `plant_exchange`
   ADD PRIMARY KEY (`Exchange_ID`);
 
 --
--- Indexes for table `purchase`
---
-ALTER TABLE `purchase`
-  ADD PRIMARY KEY (`Purchase_ID`),
-  ADD KEY `Supplier_ID` (`Supplier_ID`),
-  ADD KEY `Employee_ID` (`Employee_ID`);
-
---
 -- Indexes for table `purchase_contains_plant`
 --
 ALTER TABLE `purchase_contains_plant`
   ADD PRIMARY KEY (`Purchase_ID`,`Plant_ID`),
   ADD KEY `Plant_ID` (`Plant_ID`);
-
---
--- Indexes for table `purchase_transaction`
---
-ALTER TABLE `purchase_transaction`
-  ADD PRIMARY KEY (`Purchase_ID`);
-
---
--- Indexes for table `sale`
---
-ALTER TABLE `sale`
-  ADD PRIMARY KEY (`Sale_ID`),
-  ADD KEY `Customer_ID` (`Customer_ID`),
-  ADD KEY `Employee_ID` (`Employee_ID`);
-
---
--- Indexes for table `sales_transaction`
---
-ALTER TABLE `sales_transaction`
-  ADD PRIMARY KEY (`Txn_ID`);
 
 --
 -- Indexes for table `sale_contains_plant`
@@ -535,12 +407,6 @@ ALTER TABLE `sale_contains_plant`
 --
 ALTER TABLE `services`
   ADD PRIMARY KEY (`service_id`);
-
---
--- Indexes for table `supplier`
---
-ALTER TABLE `supplier`
-  ADD PRIMARY KEY (`Supplier_ID`);
 
 --
 -- AUTO_INCREMENT for dumped tables
@@ -565,99 +431,10 @@ ALTER TABLE `exchange`
   MODIFY `exchange_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=11;
 
 --
--- AUTO_INCREMENT for table `orders`
---
-ALTER TABLE `orders`
-  MODIFY `Order_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=67;
-
---
--- AUTO_INCREMENT for table `category`
---
-ALTER TABLE `category`
-  MODIFY `Category_ID` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=5;
-
---
 -- AUTO_INCREMENT for table `plant`
 --
 ALTER TABLE `plant`
-  MODIFY `Plant_ID` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=6;
-
---
--- AUTO_INCREMENT for table `purchase`
---
-ALTER TABLE `purchase`
-  MODIFY `Purchase_ID` int(11) NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT for table `purchase_transaction`
---
-ALTER TABLE `purchase_transaction`
-  MODIFY `Purchase_ID` int(11) NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT for table `sale`
---
-ALTER TABLE `sale`
-  MODIFY `Sale_ID` int(11) NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT for table `sales_transaction`
---
-ALTER TABLE `sales_transaction`
-  MODIFY `Txn_ID` int(11) NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT for table `supplier`
---
-ALTER TABLE `supplier`
-  MODIFY `Supplier_ID` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=3;
-
---
--- AUTO_INCREMENT for table `plants`
---
-ALTER TABLE `plants`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=5;
-
---
--- AUTO_INCREMENT for table `services`
---
-ALTER TABLE `services`
-  MODIFY `service_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=3;
-
---
--- Constraints for dumped tables
---
-
---
--- Constraints for table `plant`
---
-ALTER TABLE `plant`
-  ADD CONSTRAINT `plant_ibfk_1` FOREIGN KEY (`Category_ID`) REFERENCES `category` (`Category_ID`);
-
---
--- Constraints for table `purchase`
---
-ALTER TABLE `purchase`
-  ADD CONSTRAINT `purchase_ibfk_1` FOREIGN KEY (`Supplier_ID`) REFERENCES `supplier` (`Supplier_ID`);
-
---
--- Constraints for table `purchase_contains_plant`
---
-ALTER TABLE `purchase_contains_plant`
-  ADD CONSTRAINT `purchase_contains_plant_ibfk_1` FOREIGN KEY (`Purchase_ID`) REFERENCES `purchase` (`Purchase_ID`);
-
---
--- Constraints for table `sale`
---
-ALTER TABLE `sale`
-  ADD CONSTRAINT `sale_ibfk_1` FOREIGN KEY (`Customer_ID`) REFERENCES `customer` (`Customer_ID`);
-
---
--- Constraints for table `sale_contains_plant`
---
-ALTER TABLE `sale_contains_plant`
-  ADD CONSTRAINT `sale_contains_plant_ibfk_1` FOREIGN KEY (`Sale_ID`) REFERENCES `sale` (`Sale_ID`),
-  ADD CONSTRAINT `sale_contains_plant_ibfk_2` FOREIGN KEY (`Plant_ID`) REFERENCES `plant` (`Plant_ID`);
+  MODIFY `Plant_ID` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=11;
 COMMIT;
 
 /*!40101 SET CHARACTER_SET_CLIENT=@OLD_CHARACTER_SET_CLIENT */;
