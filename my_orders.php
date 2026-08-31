@@ -1,328 +1,618 @@
 <?php
+/*
+=========================================================
+    PLANT HUB - MY ORDERS
+    Shows all orders belonging to the logged-in customer
+=========================================================
+*/
+
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
 
-include("DBconnect.php");
+require_once "DBconnect.php";
 
-$raw_id =
-    $_SESSION['customer_id']
-    ?? $_SESSION['Customer_id']
-    ?? $_SESSION['Customer_ID']
-    ?? $_SESSION['user_id']
-    ?? $_SESSION['id']
-    ?? null;
+/* -------------------------------------------------------
+   1. GET CUSTOMER ID FROM SESSION
+------------------------------------------------------- */
 
-$clean_customer_id = (int)preg_replace(
-    '/[^0-9]/',
-    '',
-    (string)$raw_id
-);
+$raw_customer_id = null;
 
-if ($clean_customer_id <= 0) {
+if (isset($_SESSION['customer_id'])) {
+    $raw_customer_id = $_SESSION['customer_id'];
+} elseif (isset($_SESSION['Customer_id'])) {
+    $raw_customer_id = $_SESSION['Customer_id'];
+} elseif (isset($_SESSION['Customer_ID'])) {
+    $raw_customer_id = $_SESSION['Customer_ID'];
+} elseif (isset($_SESSION['user_id'])) {
+    $raw_customer_id = $_SESSION['user_id'];
+} elseif (isset($_SESSION['id'])) {
+    $raw_customer_id = $_SESSION['id'];
+}
+
+/*
+   Convert values such as:
+   11
+   C11
+   CUST-11
+   customer11
+   into 11
+*/
+$customer_id = (int) preg_replace('/[^0-9]/', '', (string)$raw_customer_id);
+
+if ($customer_id <= 0) {
     header("Location: login.php");
     exit;
 }
 
-/*
- * One exchange belongs to one order.
- * This is why Order_ID is stored in exchange.
- */
-$query = "
+/* -------------------------------------------------------
+   2. GET CUSTOMER NAME
+------------------------------------------------------- */
+
+$customer_name = "";
+
+$customer_sql = "
+    SELECT Customer_name
+    FROM customer
+    WHERE Customer_ID = $customer_id
+    LIMIT 1
+";
+
+$customer_result = mysqli_query($conn, $customer_sql);
+
+if ($customer_result && mysqli_num_rows($customer_result) > 0) {
+    $customer_row = mysqli_fetch_assoc($customer_result);
+    $customer_name = $customer_row['Customer_name'] ?? "";
+}
+
+/* -------------------------------------------------------
+   3. GET ALL ORDERS FOR THIS CUSTOMER
+------------------------------------------------------- */
+
+$orders_sql = "
     SELECT
-        o.*,
+        o.Order_id,
+        o.Customer_id,
+        o.Plant_id,
+        o.Amount,
+        o.Order_date,
+        o.Exchange_status,
+        o.points_redeemed,
         p.Plant_name,
-        p.Unit_price,
-        e.exchange_id,
-        e.status AS exchange_status,
-        e.Exchange_value,
-        e.payment_method,
-        e.payment_status,
-        e.adjustment_direction,
-        e.Offered_plant_ID,
-        e.Received_plant_ID
+        p.Unit_price
     FROM orders o
     LEFT JOIN plant p
         ON o.Plant_id = p.Plant_ID
-    LEFT JOIN exchange e
-        ON e.Order_ID = o.Order_id
-       AND e.Customer_ID = o.Customer_id
-    WHERE o.Customer_id = ?
-    ORDER BY o.Order_id DESC, e.exchange_id DESC
+    WHERE o.Customer_id = $customer_id
+    ORDER BY o.Order_id DESC
 ";
 
-$stmt = mysqli_prepare($conn, $query);
+$result = mysqli_query($conn, $orders_sql);
 
-if ($stmt) {
-    mysqli_stmt_bind_param($stmt, "i", $clean_customer_id);
-    mysqli_stmt_execute($stmt);
-    $result = mysqli_stmt_get_result($stmt);
-} else {
-    $result = false;
+$query_error = "";
+
+if (!$result) {
+    $query_error = mysqli_error($conn);
 }
+
+/* -------------------------------------------------------
+   4. HELPER FOR ESCAPING OUTPUT
+------------------------------------------------------- */
+
+function e($value)
+{
+    return htmlspecialchars((string)$value, ENT_QUOTES, 'UTF-8');
+}
+
 ?>
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>My Orders - Plant Hub</title>
-<style>
-body{font-family:'Segoe UI',sans-serif;background:#eef7f2;margin:0;color:#1e293b}
-.container{max-width:1200px;margin:30px auto;padding:0 20px}
-.card{background:white;padding:25px;border-radius:14px;box-shadow:0 4px 12px rgba(0,0,0,.05);border:1px solid #e2e8f0;overflow-x:auto}
-h2{margin-top:0;color:#065f46}
-.orders-table{width:100%;border-collapse:collapse;margin-top:20px;min-width:1050px}
-.orders-table th,.orders-table td{padding:13px 12px;text-align:left;border-bottom:1px solid #e2e8f0;vertical-align:top}
-.orders-table th{background:#f8fafc;color:#334155;font-weight:700}
-.orders-table tr:hover{background:#f8fffb}
-.status-badge{display:inline-block;padding:5px 10px;border-radius:12px;font-size:12px;font-weight:bold}
-.status-none{background:#f1f5f9;color:#475569}
-.status-pending{background:#fef3c7;color:#92400e}
-.status-approved{background:#dbeafe;color:#1d4ed8}
-.status-completed{background:#dcfce7;color:#166534}
-.exchange-btn{display:inline-block;background:#0284c7;color:white;text-decoration:none;padding:8px 13px;border-radius:7px;font-weight:700;font-size:13px}
-.disabled-btn{display:inline-block;background:#e2e8f0;color:#64748b;padding:8px 13px;border-radius:7px;font-weight:600;font-size:13px}
-.amount{color:#10b981;font-weight:bold}
-.cod{color:#dc2626;font-weight:700}
-.wallet{color:#059669;font-weight:700}
-.approved-box{background:#eff6ff;color:#1d4ed8;padding:8px;border-radius:7px;font-size:13px}
-.empty{text-align:center;color:#64748b;padding:30px}
-@media(max-width:800px){
-.orders-table{font-size:13px}
-.orders-table th,.orders-table td{padding:9px 7px}
-}
-</style>
+
+    <meta charset="UTF-8">
+
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>My Orders - Plant Hub</title>
+
+    <style>
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: "Segoe UI", Arial, sans-serif;
+            background: #eef7f2;
+            color: #1e293b;
+        }
+
+        .container {
+            width: 95%;
+            max-width: 1200px;
+            margin: 35px auto;
+        }
+
+        .card {
+            background: #ffffff;
+            border-radius: 16px;
+            padding: 28px;
+            box-shadow: 0 5px 18px rgba(0, 0, 0, 0.06);
+        }
+
+        .title {
+            margin: 0;
+            color: #065f46;
+            font-size: 28px;
+        }
+
+        .subtitle {
+            color: #64748b;
+            margin-top: 8px;
+            margin-bottom: 25px;
+        }
+
+        .customer-box {
+            background: #ecfdf5;
+            border: 1px solid #a7f3d0;
+            color: #065f46;
+            padding: 13px 16px;
+            border-radius: 9px;
+            margin-bottom: 22px;
+            font-weight: 600;
+        }
+
+        .error-box {
+            background: #fee2e2;
+            border: 1px solid #fecaca;
+            color: #991b1b;
+            padding: 14px;
+            border-radius: 9px;
+            margin-bottom: 20px;
+        }
+
+        .table-wrapper {
+            width: 100%;
+            overflow-x: auto;
+        }
+
+        .orders-table {
+            width: 100%;
+            border-collapse: collapse;
+            min-width: 850px;
+        }
+
+        .orders-table th {
+            background: #f1f5f9;
+            color: #334155;
+            text-align: left;
+            padding: 14px 12px;
+            font-size: 14px;
+            border-bottom: 2px solid #e2e8f0;
+        }
+
+        .orders-table td {
+            padding: 14px 12px;
+            border-bottom: 1px solid #e2e8f0;
+            vertical-align: middle;
+        }
+
+        .orders-table tr:hover {
+            background: #f8fffb;
+        }
+
+        .order-id {
+            font-weight: 800;
+            color: #334155;
+        }
+
+        .plant-name {
+            font-weight: 700;
+            color: #1e293b;
+        }
+
+        .amount {
+            font-weight: 800;
+            color: #059669;
+        }
+
+        .points {
+            color: #475569;
+            font-weight: 600;
+        }
+
+        /* ------------------------------------------------
+           STATUS BADGES
+        ------------------------------------------------ */
+
+        .status {
+            display: inline-block;
+            padding: 6px 11px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 700;
+            white-space: nowrap;
+        }
+
+        .status-none {
+            background: #f1f5f9;
+            color: #475569;
+        }
+
+        .status-pending {
+            background: #fef3c7;
+            color: #92400e;
+        }
+
+        .status-approved {
+            background: #dbeafe;
+            color: #1d4ed8;
+        }
+
+        .status-completed {
+            background: #dcfce7;
+            color: #166534;
+        }
+
+        .status-rejected {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+
+        /* ------------------------------------------------
+           EXCHANGE BUTTON
+        ------------------------------------------------ */
+
+        .exchange-btn {
+            display: inline-block;
+            background: #0284c7;
+            color: white;
+            text-decoration: none;
+            padding: 9px 14px;
+            border-radius: 7px;
+            font-size: 13px;
+            font-weight: 700;
+            transition: 0.2s;
+            white-space: nowrap;
+        }
+
+        .exchange-btn:hover {
+            background: #0369a1;
+        }
+
+        .disabled-btn {
+            display: inline-block;
+            background: #e2e8f0;
+            color: #64748b;
+            padding: 9px 14px;
+            border-radius: 7px;
+            font-size: 13px;
+            font-weight: 700;
+            white-space: nowrap;
+        }
+
+        .empty {
+            text-align: center;
+            padding: 50px 20px;
+            color: #64748b;
+        }
+
+        .shop-btn {
+            display: inline-block;
+            margin-top: 15px;
+            padding: 10px 18px;
+            background: #10b981;
+            color: white;
+            text-decoration: none;
+            border-radius: 8px;
+            font-weight: 700;
+        }
+
+        .shop-btn:hover {
+            background: #059669;
+        }
+
+        @media (max-width: 700px) {
+
+            .container {
+                width: 98%;
+                margin: 15px auto;
+            }
+
+            .card {
+                padding: 18px;
+            }
+
+            .title {
+                font-size: 23px;
+            }
+
+        }
+
+    </style>
+
 </head>
+
 <body>
 
-<?php if (file_exists("header.php")) include("header.php"); ?>
-
-<div class="container">
-<div class="card">
-
-<h2>My Orders 📦</h2>
-
-<p style="color:#64748b;">
-View your purchase history and request a plant exchange.
-</p>
-
-<table class="orders-table">
-<thead>
-<tr>
-<th>Order #</th>
-<th>Plant Name</th>
-<th>Amount Paid</th>
-<th>Points Redeemed</th>
-<th>Exchange Status</th>
-<th>Price Adjustment</th>
-<th>Exchange</th>
-</tr>
-</thead>
-
-<tbody>
-
-<?php if ($result && mysqli_num_rows($result) > 0): ?>
-
-<?php while ($row = mysqli_fetch_assoc($result)): ?>
-
 <?php
-$order_id = (int)($row['Order_id'] ?? 0);
-$plant_id = (int)($row['Plant_id'] ?? 0);
-$plant_name = $row['Plant_name'] ?? 'Unknown Plant';
-$amount = (float)($row['Amount'] ?? 0);
-$points = (int)($row['points_redeemed'] ?? 0);
 
-$exchange_status = trim(
-    (string)($row['exchange_status'] ?? '')
-);
+if (file_exists("header.php")) {
+    include "header.php";
+}
 
-$status_lower = strtolower($exchange_status);
-
-$difference = (float)($row['Exchange_value'] ?? 0);
-$payment_status = $row['payment_status'] ?? '';
 ?>
 
-<tr>
+<div class="container">
 
-<td><strong>#<?=htmlspecialchars((string)$order_id)?></strong></td>
+    <div class="card">
 
-<td>
-🌱 <?=htmlspecialchars($plant_name)?>
-</td>
+        <h1 class="title">My Orders 📦</h1>
 
-<td class="amount">
-৳<?=number_format($amount,2)?>
-</td>
+        <p class="subtitle">
+            View all your purchases and manage plant exchanges.
+        </p>
 
-<td>
-<?=$points?> PTS
-</td>
+        <div class="customer-box">
+            👤 Customer:
+            <?php echo e($customer_name); ?>
+            &nbsp; | &nbsp;
+            Customer ID: <?php echo e($customer_id); ?>
+        </div>
 
-<td>
+        <?php if ($query_error !== ""): ?>
 
-<?php if ($status_lower === 'pending'): ?>
+            <div class="error-box">
+                ❌ Unable to load your orders.
+                <br>
+                <?php echo e($query_error); ?>
+            </div>
 
-<span class="status-badge status-pending">
-⏳ Exchange Pending
-</span>
+        <?php endif; ?>
 
-<br>
-<small style="color:#64748b;">
-Waiting for employee approval
-</small>
+        <div class="table-wrapper">
 
-<?php elseif ($status_lower === 'approved'): ?>
+            <table class="orders-table">
 
-<span class="status-badge status-approved">
-✓ Exchange Approved
-</span>
+                <thead>
 
-<br>
-<small style="color:#1d4ed8;">
-Exchange has been processed by employee
-</small>
+                    <tr>
+                        <th>Order #</th>
+                        <th>Plant</th>
+                        <th>Amount</th>
+                        <th>Order Date</th>
+                        <th>Points</th>
+                        <th>Exchange Status</th>
+                        <th>Exchange</th>
+                    </tr>
 
-<?php elseif ($status_lower === 'completed'): ?>
+                </thead>
 
-<span class="status-badge status-completed">
-✓ Exchange Completed
-</span>
+                <tbody>
 
-<?php else: ?>
+                <?php if ($result && mysqli_num_rows($result) > 0): ?>
 
-<span class="status-badge status-none">
-No Exchange
-</span>
+                    <?php while ($row = mysqli_fetch_assoc($result)): ?>
 
-<?php endif; ?>
+                        <?php
 
-</td>
+                        $order_id = (int)($row['Order_id'] ?? 0);
 
-<td>
+                        $plant_id = (int)($row['Plant_id'] ?? 0);
 
-<?php if ($status_lower === 'approved'): ?>
+                        $plant_name = $row['Plant_name'] ?? "Unknown Plant";
 
-<?php if ($difference > 0): ?>
+                        $amount = (float)($row['Amount'] ?? 0);
 
-<div class="cod">
-💵 COD: ৳<?=number_format($difference,2)?>
-</div>
+                        $order_date = $row['Order_date'] ?? "";
 
-<small>
-Pay ৳<?=number_format($difference,2)?>
-by Cash on Delivery.
-</small>
+                        $points = (int)($row['points_redeemed'] ?? 0);
 
-<?php elseif ($difference < 0): ?>
+                        $exchange_status =
+                            $row['Exchange_status'] ??
+                            "None";
 
-<div class="wallet">
-💰 Wallet Credited:
-৳<?=number_format(abs($difference),2)?>
-</div>
+                        $status_lower = strtolower(
+                            trim((string)$exchange_status)
+                        );
 
-<small>
-Refund added to your Store Wallet.
-</small>
+                        ?>
 
-<?php else: ?>
+                        <tr>
 
-<div class="wallet">
-💵 COD: ৳0.00
-</div>
+                            <!-- ORDER ID -->
 
-<small>
-No additional payment required.
-</small>
+                            <td class="order-id">
+                                #<?php echo $order_id; ?>
+                            </td>
 
-<?php endif; ?>
+                            <!-- PLANT -->
 
-<?php elseif ($status_lower === 'pending'): ?>
+                            <td class="plant-name">
+                                🌱 <?php echo e($plant_name); ?>
+                            </td>
 
-<small style="color:#92400e;">
-Price adjustment will be finalized after approval.
-</small>
+                            <!-- AMOUNT -->
 
-<?php else: ?>
+                            <td class="amount">
+                                ৳<?php echo number_format($amount, 2); ?>
+                            </td>
 
-—
+                            <!-- DATE -->
 
-<?php endif; ?>
+                            <td>
+                                <?php
+                                if (!empty($order_date)) {
+                                    echo e(date("d M Y, h:i A", strtotime($order_date)));
+                                } else {
+                                    echo "-";
+                                }
+                                ?>
+                            </td>
 
-</td>
+                            <!-- POINTS -->
 
-<td>
+                            <td class="points">
+                                <?php echo $points; ?> PTS
+                            </td>
 
-<?php if ($status_lower === 'pending'): ?>
+                            <!-- EXCHANGE STATUS -->
 
-<span class="disabled-btn">
-⏳ Waiting for Employee
-</span>
+                            <td>
 
-<?php elseif ($status_lower === 'approved'): ?>
+                                <?php if ($status_lower === "pending"): ?>
 
-<span class="approved-box">
-✓ Approved & Processed
-</span>
+                                    <span class="status status-pending">
+                                        ⏳ Exchange Pending
+                                    </span>
 
-<?php elseif ($status_lower === 'completed'): ?>
+                                <?php elseif ($status_lower === "approved"): ?>
 
-<span class="disabled-btn">
-✓ Done
-</span>
+                                    <span class="status status-approved">
+                                        ✓ Exchange Approved
+                                    </span>
 
-<?php else: ?>
+                                <?php elseif (
+                                    $status_lower === "completed" ||
+                                    $status_lower === "complete"
+                                ): ?>
 
-<?php if ($plant_id > 0 && $order_id > 0): ?>
+                                    <span class="status status-completed">
+                                        ✓ Exchange Completed
+                                    </span>
 
-<a
-href="process_exchanges.php?order_id=<?=$order_id?>&offered_plant_id=<?=$plant_id?>"
-class="exchange-btn"
->
-🔄 Request Exchange
-</a>
+                                <?php elseif ($status_lower === "rejected"): ?>
 
-<?php else: ?>
+                                    <span class="status status-rejected">
+                                        ✕ Exchange Rejected
+                                    </span>
 
-<span class="disabled-btn">
-Not Available
-</span>
+                                <?php else: ?>
 
-<?php endif; ?>
+                                    <span class="status status-none">
+                                        No Exchange
+                                    </span>
 
-<?php endif; ?>
+                                <?php endif; ?>
 
-</td>
+                            </td>
 
-</tr>
+                            <!-- EXCHANGE ACTION -->
 
-<?php endwhile; ?>
+                            <td>
 
-<?php else: ?>
+                                <?php
 
-<tr>
-<td colspan="7" class="empty">
-No order history found.
-<br><br>
-<a href="shop.php" style="color:#065f46;font-weight:bold;">
-Start Shopping 🌱
-</a>
-</td>
-</tr>
+                                /*
+                                 * Customer can request an exchange only
+                                 * when there isn't already an active/completed
+                                 * exchange for this order.
+                                 */
 
-<?php endif; ?>
+                                if (
+                                    $plant_id > 0 &&
+                                    $status_lower !== "pending" &&
+                                    $status_lower !== "approved" &&
+                                    $status_lower !== "completed" &&
+                                    $status_lower !== "complete"
+                                ):
 
-</tbody>
-</table>
+                                ?>
 
-</div>
+                                    <a
+                                        class="exchange-btn"
+                                        href="process_exchanges.php?order_id=<?php echo $order_id; ?>&offered_plant_id=<?php echo $plant_id; ?>"
+                                    >
+                                        🔄 Request Exchange
+                                    </a>
+
+                                <?php elseif ($status_lower === "pending"): ?>
+
+                                    <span class="disabled-btn">
+                                        ⏳ Waiting for Approval
+                                    </span>
+
+                                <?php elseif ($status_lower === "approved"): ?>
+
+                                    <span class="disabled-btn">
+                                        ✓ Approved
+                                    </span>
+
+                                <?php elseif (
+                                    $status_lower === "completed" ||
+                                    $status_lower === "complete"
+                                ): ?>
+
+                                    <span class="disabled-btn">
+                                        ✓ Completed
+                                    </span>
+
+                                <?php else: ?>
+
+                                    <span class="disabled-btn">
+                                        Not Available
+                                    </span>
+
+                                <?php endif; ?>
+
+                            </td>
+
+                        </tr>
+
+                    <?php endwhile; ?>
+
+                <?php else: ?>
+
+                    <tr>
+
+                        <td colspan="7" class="empty">
+
+                            <div style="font-size: 40px;">
+                                📦
+                            </div>
+
+                            <h3>
+                                No Order History Found
+                            </h3>
+
+                            <p>
+                                Your completed purchases will appear here.
+                            </p>
+
+                            <a
+                                href="shop.php"
+                                class="shop-btn"
+                            >
+                                🌱 Start Shopping
+                            </a>
+
+                        </td>
+
+                    </tr>
+
+                <?php endif; ?>
+
+                </tbody>
+
+            </table>
+
+        </div>
+
+    </div>
+
 </div>
 
 <?php
+
 if (file_exists("footer.php")) {
-    include("footer.php");
+    include "footer.php";
 }
+
 ?>
 
 </body>
+
 </html>
